@@ -1,0 +1,17 @@
+build/
+out/
+work/
+*.user
+*.log
+
+# Never commit game files.
+Cube.exe
+Server.exe
+CubeLauncher.exe
+*.cub
+*.plx
+*.db
+*.dat
+Save/
+
+__pycache__/
