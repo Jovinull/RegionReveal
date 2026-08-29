@@ -86,15 +86,21 @@ python tests/run_tests.py build/Release/signature_test.exe "<game>/Cube.exe"
 
 ### Antivirus
 
-Windows Defender quarantined `signature_test.exe` on this machine right after it
-was built. It is a false positive with an understandable cause: the test binary
-embeds long literal byte sequences copied out of `Cube.exe`, so a scanner sees a
-program carrying fragments of another executable.
+Two false positives on this machine, both understandable:
 
-`RegionRevealLauncher.exe` is a likelier target still — `CreateRemoteThread` plus
-`LoadLibraryW` into another process is the textbook injection pattern, and
-heuristics flag it regardless of intent.
+- `signature_test.exe` was quarantined right after building. The binary embeds
+  long literal byte sequences copied out of `Cube.exe`, so a scanner sees a
+  program carrying fragments of another executable. A second copy built directly
+  with `cl` ran fine, and the suite passes with it.
+- `RegionRevealLauncher.exe` is **blocked outright** — launching it fails with
+  `WinError 225`. `CreateRemoteThread` plus `LoadLibraryW` into another process
+  is the textbook injection pattern and heuristics reject it regardless of
+  intent.
+
+That second one is why `dinput8.dll` is the supported loader. Proxying an import
+is not injection: the OS loads the DLL through its normal search order, no
+foreign process is written to, and Defender raises nothing. It also happens to be
+the better design — it adds a file instead of driving the process externally.
 
 No exclusion was added and no Defender setting was changed; that is a decision
-for whoever owns the machine. If the tools disappear after building, this is
-why.
+for whoever owns the machine.

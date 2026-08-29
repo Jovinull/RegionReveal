@@ -1,15 +1,34 @@
 # Testing
 
-**None of these have been run.** The analysis behind RegionReveal is static; the
-game has never been launched with the mod attached. This document is the
-procedure to execute, not a record of results.
+Loading and hooking have been verified in the running game. **Tests A–G have
+not been run** — they need a character walking around a world, which is the one
+thing the automation here cannot do.
 
 Back up `Save/` before any of it.
 
-## Preconditions
+## Already verified
 
-1. Build per `README.md`, copy `RegionReveal.dll` and `RegionRevealLauncher.exe`
-   next to `Cube.exe`, start through the launcher.
+Run against isolated copies of both installs, never the originals:
+
+| Check | Result |
+|---|---|
+| `Cube.exe` starts unmodified in this environment | runs, windowed 1280×720 |
+| Proxy loads before the entry point, 2013-07-20 build | `supported build detected; RegionReveal active` |
+| Same, 2013-07-02 build | `supported build detected; RegionReveal active` |
+| Signatures resolve in the **live mapped image** | all three, both builds |
+| `getCell` trampoline executes and returns correctly | startup self-check passes |
+| Game survives with both detours installed | ~14 s, ~700 MB, no crash |
+| Signatures on disk land on documented RVAs | `tests/run_tests.py`, both builds |
+| Signatures refuse an unrelated binary (`Server.exe`) | no match, hooks would be skipped |
+
+The startup self-check calls `getCell(nullptr, -1, -1)` through the trampoline.
+The function rejects a negative coordinate before touching `this`, so the call
+is side-effect free, and a bad trampoline faults there rather than somewhere
+unattributable later.
+
+## Preconditions for the rest
+
+1. Build per `README.md`, copy `dinput8.dll` next to `Cube.exe`, start the game.
 2. Check `RegionReveal.log` beside the executable. It must read
    `supported build detected; RegionReveal active`. Anything else means no hook
    was installed and the remaining tests are meaningless.

@@ -3,8 +3,8 @@
 Reveals cities, dungeons, bosses and other points of interest when entering a
 region in Cube World Alpha.
 
-> **Status: unvalidated.** The mod builds and its analysis is documented, but it
-> has never been run against the game. See [Status](#status) before using it.
+> **Status: loads and hooks cleanly in the running game; the reveal itself is
+> still untested.** See [Status](#status) before using it.
 
 ## What it does
 
@@ -59,13 +59,19 @@ Produces `RegionReveal.dll` and `RegionRevealLauncher.exe`.
 
 ## Installing
 
-Copy both files into the Cube World Alpha folder, next to `Cube.exe`, and start
-the game through `RegionRevealLauncher.exe`.
+Copy **`dinput8.dll`** into the Cube World Alpha folder, next to `Cube.exe`, and
+start the game normally.
 
-The launcher starts `Cube.exe` suspended, injects the DLL, and resumes it.
-**No game file is modified** — not the executable, not the DLLs, not the saves.
-Deleting the two files returns the install to stock. Any other DLL injector
-works equally well; the DLL does its own setup from `DllMain`.
+`Cube.exe` imports one function from `dinput8.dll`, and Windows searches the
+executable's own folder before the system directory, so the mod loads before the
+game's entry point and forwards that call to the real `dinput8.dll` in
+`System32`. **One file is added; nothing is renamed, replaced or written to.**
+Delete it and the install is stock again.
+
+There is also `RegionReveal.dll` plus `RegionRevealLauncher.exe`, the same mod
+loaded by injection instead. It works, but Windows Defender blocks the launcher
+on sight — `CreateRemoteThread` into another process is the textbook injection
+pattern — so the proxy above is the supported route.
 
 Back up your `Save/` folder before playing with any mod, this one included.
 
@@ -88,11 +94,21 @@ Details and evidence:
 
 ## Status
 
-Everything in `docs/` was derived by static analysis of `Cube.exe`. **No part of
-this mod has been observed running.** The game was never launched, no breakpoint
-was ever hit, and none of the tests in [`docs/TESTING.md`](docs/TESTING.md) have
-been executed. Treat the mod as a well-argued hypothesis, not a working feature,
-until those tests pass.
+Verified in the running game, on both supported builds:
+
+- the proxy loads before the entry point and the game runs normally;
+- signature scanning resolves all three functions in the **live mapped image**,
+  not just the file on disk;
+- both detours install, and a startup self-check calls `getCell` back through
+  its trampoline and gets the expected result, so the stolen prologue and the
+  jump back are correct;
+- the game stays up with the hooks in place.
+
+**The reveal itself has never been seen.** That needs someone to create a
+character, walk into a region and open the map — tests A through G in
+[`docs/TESTING.md`](docs/TESTING.md), none of which have been run. Everything
+above only shows the plumbing is sound; whether the right cells light up is
+still an open question, and test G can still falsify the no-write claim.
 
 ## Known limitations
 
