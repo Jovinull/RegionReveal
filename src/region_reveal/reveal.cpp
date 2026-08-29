@@ -68,6 +68,18 @@ void __fastcall discover_detour(cw::WorldMap* self, void*, int x, int y) {
     g_discover.original<cw::DiscoverFn>()(self, x, y);
 }
 
+// Proves the trampoline executes: getCell rejects a negative coordinate before
+// it ever touches `this`, so calling it through the trampoline with a null
+// instance is side-effect free and must return null. A malformed trampoline
+// faults here instead of somewhere unattributable mid-game.
+bool trampoline_works() {
+    __try {
+        return g_get_cell.original<cw::GetCellFn>()(nullptr, -1, -1) == nullptr;
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        return false;
+    }
+}
+
 // MSVC pads between functions with int3; the first long run after the entry
 // marks the end of the draw method.
 std::uint8_t* end_of_function(std::uint8_t* begin, std::uint8_t* limit) {
@@ -103,6 +115,11 @@ bool initialize() {
 
     if (!g_get_cell.install(get_cell, &get_cell_detour)) {
         log_line("failed to hook WorldMap::getCell");
+        return false;
+    }
+    if (!trampoline_works()) {
+        g_get_cell.remove();
+        log_line("getCell trampoline did not behave - hooks backed out");
         return false;
     }
     if (!g_discover.install(discover, &discover_detour)) {

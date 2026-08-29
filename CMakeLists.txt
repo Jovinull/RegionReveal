@@ -11,13 +11,24 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 
-add_library(RegionReveal SHARED
+set(REGIONREVEAL_SOURCES
   src/mod.cpp
   src/hooks.cpp
   src/game/signatures.cpp
   src/region_reveal/log.cpp
   src/region_reveal/reveal.cpp
 )
+
+# Preferred loader: Cube.exe imports one function from dinput8.dll and the
+# loader searches its own folder first, so dropping this beside the game loads
+# the mod without an injector. Only adds a file; nothing is renamed.
+add_library(dinput8 SHARED ${REGIONREVEAL_SOURCES} src/loader/proxy_dinput8.cpp)
+target_include_directories(dinput8 PRIVATE src)
+target_compile_definitions(dinput8 PRIVATE REGIONREVEAL_PROXY_DINPUT8)
+set_target_properties(dinput8 PROPERTIES PREFIX "" OUTPUT_NAME "dinput8")
+
+# Same mod without the proxy export, for use with an external injector.
+add_library(RegionReveal SHARED ${REGIONREVEAL_SOURCES})
 target_include_directories(RegionReveal PRIVATE src)
 set_target_properties(RegionReveal PROPERTIES PREFIX "" OUTPUT_NAME "RegionReveal")
 
@@ -29,7 +40,7 @@ add_executable(RegionRevealLauncher tools/launcher/launcher.cpp)
 add_executable(signature_test tests/signature_test.cpp src/game/signatures.cpp)
 target_include_directories(signature_test PRIVATE src)
 
-foreach(target RegionReveal RegionRevealLauncher signature_test)
+foreach(target dinput8 RegionReveal RegionRevealLauncher signature_test)
   if(MSVC)
     target_compile_options(${target} PRIVATE /W4 /WX /permissive-)
   endif()
