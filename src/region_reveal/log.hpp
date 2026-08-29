@@ -7,4 +7,6 @@ namespace rr {
 // build was detected and whether the hooks went in.
 void log_line(const char* message);
 
+void log_linef(const char* format, ...);
+
 }  // namespace rr

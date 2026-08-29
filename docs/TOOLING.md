@@ -86,21 +86,34 @@ python tests/run_tests.py build/Release/signature_test.exe "<game>/Cube.exe"
 
 ### Antivirus
 
-Two false positives on this machine, both understandable:
+The active scanner on this machine is **McAfee**, not Defender — Defender's
+real-time protection is off (`Get-MpComputerStatus` reports `AMRunningMode: Not
+running`). `WinError 225` comes from Windows on behalf of whichever scanner is
+registered, so it is easy to misattribute.
 
-- `signature_test.exe` was quarantined right after building. The binary embeds
-  long literal byte sequences copied out of `Cube.exe`, so a scanner sees a
-  program carrying fragments of another executable. A second copy built directly
-  with `cl` ran fine, and the suite passes with it.
-- `RegionRevealLauncher.exe` is **blocked outright** — launching it fails with
-  `WinError 225`. `CreateRemoteThread` plus `LoadLibraryW` into another process
-  is the textbook injection pattern and heuristics reject it regardless of
-  intent.
+Three interventions seen, all heuristic rather than signature matches:
 
-That second one is why `dinput8.dll` is the supported loader. Proxying an import
-is not injection: the OS loads the DLL through its normal search order, no
-foreign process is written to, and Defender raises nothing. It also happens to be
-the better design — it adds a file instead of driving the process externally.
+- `signature_test.exe` was quarantined right after building. It embeds long
+  literal byte sequences copied out of `Cube.exe`, so a scanner sees a program
+  carrying fragments of another executable.
+- `RegionRevealLauncher.exe` is **blocked outright**. `CreateRemoteThread` plus
+  `LoadLibraryW` into another process is the textbook injection pattern.
+- A freshly built `dinput8.dll` survives on disk but is **deleted the moment
+  Cube.exe loads it**, while an older build of the same source is left alone.
+  That is reputation-based: an unknown binary that patches another module's
+  code gets removed on first execution.
 
-No exclusion was added and no Defender setting was changed; that is a decision
-for whoever owns the machine.
+The last one is the one that hurts, because every rebuild is a new binary. The
+honest reading is that the heuristic is right about the technique: the mod does
+call `VirtualProtect` and write into `Cube.exe`'s code, which is exactly what
+a malicious hook does. What separates them is intent and provenance, and a
+scanner cannot see either.
+
+What the DLL actually links against is checkable, and is the argument to make
+when whitelisting it: `kernel32.dll` only, 84 imports, nothing from `ws2_32`,
+`wininet` or `winhttp`, no `CreateProcess`, no registry, no `OpenProcess` or
+`WriteProcessMemory`.
+
+Iterating on the mod needs a scanner exclusion for the game folder and
+`build/`. No exclusion was added here and no scanner setting was changed; that
+is a decision for whoever owns the machine.

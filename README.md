@@ -69,9 +69,13 @@ game's entry point and forwards that call to the real `dinput8.dll` in
 Delete it and the install is stock again.
 
 There is also `RegionReveal.dll` plus `RegionRevealLauncher.exe`, the same mod
-loaded by injection instead. It works, but Windows Defender blocks the launcher
-on sight — `CreateRemoteThread` into another process is the textbook injection
+loaded by injection instead. It works, but antivirus blocks the launcher on
+sight — `CreateRemoteThread` into another process is the textbook injection
 pattern — so the proxy above is the supported route.
+
+Expect the antivirus to object to the proxy too. The mod patches five bytes of
+`Cube.exe` in memory, which is genuinely the same technique a malicious hook
+uses; see `docs/TOOLING.md` for what the DLL does and does not link against.
 
 Back up your `Save/` folder before playing with any mod, this one included.
 

@@ -11,6 +11,12 @@
 #include "../hooks.hpp"
 #include "log.hpp"
 
+#ifdef REGIONREVEAL_DIAGNOSTICS
+#define DIAG(expr) (expr)
+#else
+#define DIAG(expr) ((void)0)
+#endif
+
 namespace rr {
 namespace {
 
@@ -32,6 +38,39 @@ bool from_map_renderer(const void* return_address) {
     return at >= g_draw_begin && at < g_draw_end;
 }
 
+#ifdef REGIONREVEAL_DIAGNOSTICS
+// Counts every decision the getCell detour makes, so a log from a real session
+// says which link in the chain breaks rather than leaving it to guesswork.
+struct Counters {
+    unsigned discover;
+    int discover_x, discover_y;
+    unsigned calls;
+    unsigned from_renderer;
+    unsigned null_cell;
+    unsigned other_region;
+    unsigned kind_zero;
+    unsigned already_revealed;
+    unsigned shadowed;
+    int min_x, max_x, min_y, max_y;
+};
+
+Counters g_diag{0, -1, -1, 0, 0, 0, 0, 0, 0, 0, 1 << 30, -(1 << 30), 1 << 30, -(1 << 30)};
+DWORD g_reported = 0;
+
+void report() {
+    const DWORD now = GetTickCount();
+    if (now - g_reported < 4000) return;
+    g_reported = now;
+    log_linef("map draw: calls=%u renderer=%u | null=%u otherRegion=%u kind0=%u lit=%u REVEALED=%u",
+              g_diag.calls, g_diag.from_renderer, g_diag.null_cell, g_diag.other_region,
+              g_diag.kind_zero, g_diag.already_revealed, g_diag.shadowed);
+    log_linef("  renderer asked x=%d..%d y=%d..%d | player chunk=(%d,%d) from %u discover calls, last=(%d,%d)",
+              g_diag.min_x, g_diag.max_x, g_diag.min_y, g_diag.max_y,
+              g_region_x.load(std::memory_order_relaxed), g_region_y.load(std::memory_order_relaxed),
+              g_diag.discover, g_diag.discover_x, g_diag.discover_y);
+}
+#endif
+
 // The renderer reads a cell and uses it immediately, but it holds a couple of
 // them alive at once, so hand out copies from a small per-thread ring instead
 // of a single scratch cell.
@@ -50,19 +89,47 @@ cw::MapCell* shadow_of(cw::MapCell* cell) {
 cw::MapCell* __fastcall get_cell_detour(cw::WorldMap* self, void*, int x, int y) {
     const void* caller = _ReturnAddress();
     cw::MapCell* cell = g_get_cell.original<cw::GetCellFn>()(self, x, y);
-    if (!cell || !from_map_renderer(caller)) return cell;
+    const bool rendering = from_map_renderer(caller);
+
+#ifdef REGIONREVEAL_DIAGNOSTICS
+    ++g_diag.calls;
+    if (rendering) {
+        ++g_diag.from_renderer;
+        if (x < g_diag.min_x) g_diag.min_x = x;
+        if (x > g_diag.max_x) g_diag.max_x = x;
+        if (y < g_diag.min_y) g_diag.min_y = y;
+        if (y > g_diag.max_y) g_diag.max_y = y;
+        if (!cell) ++g_diag.null_cell;
+        report();
+    }
+#endif
+
+    if (!cell || !rendering) return cell;
 
     if (cw::chunk_of(x) != g_region_x.load(std::memory_order_relaxed) ||
         cw::chunk_of(y) != g_region_y.load(std::memory_order_relaxed)) {
+        DIAG(++g_diag.other_region);
         return cell;
     }
-    if (*cw::cell_kind(cell) == 0) return cell;
-    if (*cw::cell_flags(cell) & cw::kRevealedBit) return cell;
+    if (*cw::cell_kind(cell) == 0) {
+        DIAG(++g_diag.kind_zero);
+        return cell;
+    }
+    if (*cw::cell_flags(cell) & cw::kRevealedBit) {
+        DIAG(++g_diag.already_revealed);
+        return cell;
+    }
 
+    DIAG(++g_diag.shadowed);
     return shadow_of(cell);
 }
 
 void __fastcall discover_detour(cw::WorldMap* self, void*, int x, int y) {
+#ifdef REGIONREVEAL_DIAGNOSTICS
+    ++g_diag.discover;
+    g_diag.discover_x = x;
+    g_diag.discover_y = y;
+#endif
     g_region_x.store(cw::chunk_of(x), std::memory_order_relaxed);
     g_region_y.store(cw::chunk_of(y), std::memory_order_relaxed);
     g_discover.original<cw::DiscoverFn>()(self, x, y);
@@ -128,7 +195,8 @@ bool initialize() {
         return false;
     }
 
-    log_line("supported build detected; RegionReveal active");
+    log_linef("supported build detected; RegionReveal active (map draw spans %u bytes)",
+              static_cast<unsigned>(g_draw_end - g_draw_begin));
     return true;
 }
 
