@@ -90,8 +90,13 @@ cw::MapCell* __fastcall get_cell_detour(cw::WorldMap* self, void*, int x, int y)
     refresh_session(self);
 
     if (!g_visited.contains(cw::region_of(x), cw::region_of(y))) return cell;
-    if (*cw::cell_unknown10(cell) == 0) return cell;
     if (*cw::cell_flags(cell) & cw::kRevealedBit) return cell;
+
+    // Deliberately not filtered on the cell's +0x10 field. The draw method makes
+    // two passes: the terrain pass at 0x4C9831 needs both +0x10 and the reveal
+    // bit, but the marker pass at 0x4CA4FB tests only the reveal bit and takes
+    // its icon from a different object. Skipping cells with +0x10 == 0 would
+    // hide markers the game would otherwise have drawn.
 
     return shadow_of(cell);
 }
