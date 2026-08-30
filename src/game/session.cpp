@@ -140,6 +140,14 @@ Probe probe(WorldMap* map) {
     std::memcpy(out.field, record, sizeof(out.field));
     out.landscape = read_msvc_string(kLandscapeName);
     out.detail = read_msvc_string(kLandscapeDetail);
+    if (readable(reinterpret_cast<const void*>(kLandscapeName), sizeof(out.nameRaw))) {
+        std::memcpy(out.nameRaw, reinterpret_cast<const void*>(kLandscapeName),
+                    sizeof(out.nameRaw));
+    }
+    if (readable(reinterpret_cast<const void*>(kLandscapeDetail), sizeof(out.detailRaw))) {
+        std::memcpy(out.detailRaw, reinterpret_cast<const void*>(kLandscapeDetail),
+                    sizeof(out.detailRaw));
+    }
     return out;
 }
 

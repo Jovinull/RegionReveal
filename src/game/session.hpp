@@ -39,6 +39,11 @@ struct Probe {
     unsigned field[8] = {};            // its first dwords, if readable
     std::string landscape;             // the name the HUD shows for the current area
     std::string detail;
+    // Raw bytes of both name globals. The first attempt to interpret them
+    // produced empty strings with no way to tell why, so the bytes are carried
+    // through and logged rather than being silently discarded.
+    unsigned char nameRaw[24] = {};
+    unsigned char detailRaw[24] = {};
 };
 
 Probe probe(WorldMap* map);

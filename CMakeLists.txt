@@ -42,7 +42,13 @@ add_executable(RegionRevealLauncher tools/launcher/launcher.cpp)
 add_executable(signature_test tests/signature_test.cpp src/game/signatures.cpp)
 target_include_directories(signature_test PRIVATE src)
 
-foreach(target dinput8 RegionReveal RegionRevealLauncher signature_test)
+# Region geometry and the visited-region file; needs neither the game nor a
+# Cube.exe on disk.
+add_executable(region_test tests/region_test.cpp src/region_reveal/visited.cpp
+                           src/region_reveal/log.cpp)
+target_include_directories(region_test PRIVATE src)
+
+foreach(target dinput8 RegionReveal RegionRevealLauncher signature_test region_test)
   if(MSVC)
     target_compile_options(${target} PRIVATE /W4 /WX /permissive-)
   endif()
