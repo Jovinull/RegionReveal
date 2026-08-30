@@ -211,8 +211,14 @@ void refresh_session(cw::WorldMap* map) {
     g_region = region;
     g_shadows.reset();
     if (g_visited.add(region.x, region.y)) {
-        log_linef("entered region (%d,%d) in world '%s'", region.x, region.y,
-                  g_visited.world().c_str());
+        // The region's 0x68 record holds one landmark type at +0x18, which is
+        // what the marker pass draws. Logging it shows what a visited region can
+        // actually contribute - a region whose landmark is terrain has no
+        // dungeon to reveal, however thoroughly the cells are revealed.
+        const cw::Probe p = cw::probe(map);
+        log_linef("entered region (%d,%d) in world '%s'; landmark type=%u",
+                  region.x, region.y, g_visited.world().c_str(),
+                  p.record ? p.field[6] : 0u);
         EnterCriticalSection(&g_lock);
         g_visited.flush();
         LeaveCriticalSection(&g_lock);
