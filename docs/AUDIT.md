@@ -61,11 +61,11 @@ CONFIRMED here when an attempt to disprove it failed.
 
 ## Hypothesis
 
-- **`ZoneTile+0x10` is the handle to that cell's loaded 32x32 tile image.** It is
-  zero in a freshly constructed cell, the renderer refuses to draw when it is
-  zero, and the cells that were drawable in the live session match — in count and
-  in coordinates — the `tile<x>_<y>` records present in the save. No writer has
-  been located, so this stays a hypothesis.
+- ~~`ZoneTile+0x10` is the handle to that cell's loaded 32x32 tile image.~~
+  **Falsified.** The tile handler never calls `getCell` and never touches the
+  cell grid, and the renderer treats `+0x10` as a byte whose address it takes,
+  not as a handle. What the field is remains UNKNOWN; see
+  `docs/POI_AND_TERRAIN.md`.
 
 ## Unknown
 

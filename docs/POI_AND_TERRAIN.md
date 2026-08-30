@@ -78,6 +78,25 @@ Database::set(key, ...)             // 0x4499C0 at 0x604E3C
 So the game **does** generate a tile when one is absent, and **writes it back to
 the save**. Two consequences follow immediately.
 
+### The tile record is not the cell's `+0x10` — FALSIFIED HYPOTHESIS
+
+An earlier revision guessed that `ZoneTile+0x10` was a handle to the cell's
+loaded 32x32 tile image. **That is wrong.** The tile handler `0x603A00` never
+calls `getCell` and never uses the cell-grid bias, so it does not reach a
+`ZoneTile` at all on that path. Two further details contradict the guess: the
+renderer tests `+0x10` as a **byte** (`cmp byte [eax+0x10], 0`) and then takes
+its **address** (`lea ecx, [eax+0x10]`), which is not how a handle is consumed.
+
+What `+0x10` actually is remains **UNKNOWN**. What is known of the cell:
+
+| Offset | Constructor value | Note |
+|---|---|---|
+| `0x00` | vftable `0x71DFBC` | `cube::ZoneTile` |
+| `0x10` | `0` | the terrain pass's gate; address taken, byte tested |
+| `0x18` | `1` | |
+| `0x20` | pointer | 20-byte heap object from `0x43C8E0` |
+| `0x30` | `0` | bit 0 = revealed |
+
 ### The generator needs the cell's terrain resident — STRONG EVIDENCE
 
 The generate path opens with:
