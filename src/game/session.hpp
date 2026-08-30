@@ -10,7 +10,10 @@ struct Region {
     int x = -1;
     int y = -1;
 
-    bool valid() const { return x >= 0 && y >= 0 && x < kGridDim && y < kGridDim; }
+    // Regions, not storage chunks: the world is kRegionDim per axis. Validating
+    // against kGridDim rejected every real region once the granularity changed,
+    // which left the mod silently inert.
+    bool valid() const { return x >= 0 && y >= 0 && x < kRegionDim && y < kRegionDim; }
     bool operator==(const Region& other) const { return x == other.x && y == other.y; }
     bool operator!=(const Region& other) const { return !(*this == other); }
 };

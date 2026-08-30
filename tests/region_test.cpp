@@ -69,6 +69,11 @@ void geometry() {
     // Coordinates are unsigned in practice - the world is centred at 32768 cells
     // - but the shift must still behave for a negative cell rather than wrap.
     check(cw::region_of(-1) == -1, "a negative cell floors rather than wraps");
+
+    // Regression: a live session sat in region 4102, which an earlier bound of
+    // 1024 rejected as out of range, leaving the mod inert.
+    check(4102 < cw::kRegionDim, "a real observed region is inside the world bounds");
+    check(cw::kRegionDim > cw::kGridDim, "regions are finer than storage chunks");
 }
 
 void storage_round_trip() {
