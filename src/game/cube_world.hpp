@@ -27,6 +27,13 @@ inline constexpr int kMapDim = kGridDim * kChunkDim;  // 65536 cells per axis
 inline constexpr int kChunkRecords = kChunkDim * kChunkDim * kCellStride;  // 0x34000
 inline constexpr int kRecordStride = 0x68;
 
+// A gameplay region is the 8x8 block of cells that one 0x68 record covers:
+// 8 * 256 = 2048 blocks per axis. The record carries the marker type the map's
+// marker pass draws, and runtime probing showed the record changes exactly when
+// this unit changes and not when the cell alone does.
+inline constexpr int kRegionCells = 8;
+inline constexpr int kRegionDim = kMapDim / kRegionCells;  // 8192 regions per axis
+
 // Offsets inside a map cell. The cell is cube::ZoneTile: its constructor
 // writes that class's RTTI vftable.
 inline constexpr int kCellContent = 0x10;  // non-zero for cells the terrain pass draws
@@ -64,7 +71,7 @@ inline constexpr std::uint32_t kStdStringSsoCapacity = 16;
 struct WorldMap;
 struct MapCell;
 
-inline int region_of(int cell) { return cell >> 6; }
+inline int region_of(int cell) { return cell >> 3; }
 
 inline std::uint8_t* cell_flags(MapCell* cell) {
     return reinterpret_cast<std::uint8_t*>(cell) + kCellFlags;
