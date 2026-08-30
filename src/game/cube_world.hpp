@@ -21,6 +21,12 @@ inline constexpr int kChunkDim = 64;
 inline constexpr int kCellStride = 0x34;
 inline constexpr int kMapDim = kGridDim * kChunkDim;  // 65536 cells per axis
 
+// After the cell array a chunk holds 64 records of 0x68, an 8x8 grid over the
+// chunk's cells. The marker pass reads them; cube::Region builds an identical
+// set at its own +0x14018, from the same constructor.
+inline constexpr int kChunkRecords = kChunkDim * kChunkDim * kCellStride;  // 0x34000
+inline constexpr int kRecordStride = 0x68;
+
 // Offsets inside a map cell. The cell is cube::ZoneTile: its constructor
 // writes that class's RTTI vftable.
 inline constexpr int kCellContent = 0x10;  // non-zero for cells the terrain pass draws
@@ -66,6 +72,12 @@ inline std::uint8_t* cell_flags(MapCell* cell) {
 
 inline std::uint8_t* cell_content(MapCell* cell) {
     return reinterpret_cast<std::uint8_t*>(cell) + kCellContent;
+}
+
+inline void* chunk_at(WorldMap* map, int cx, int cy) {
+    if (cx < 0 || cy < 0 || cx >= kGridDim || cy >= kGridDim) return nullptr;
+    auto** grid = reinterpret_cast<void**>(reinterpret_cast<std::uint8_t*>(map) + kGridOffset);
+    return grid[cx * kGridDim + cy];
 }
 
 inline std::uint8_t* owner_of(WorldMap* map) {

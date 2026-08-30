@@ -2,6 +2,8 @@
 
 #include <windows.h>
 
+#include <cstring>
+
 namespace cw {
 namespace {
 
@@ -68,6 +70,42 @@ Region local_player_region(WorldMap* map) {
 
     Region region{region_of(position_to_cell(x)), region_of(position_to_cell(y))};
     return region.valid() ? region : Region{};
+}
+
+Probe probe(WorldMap* map) {
+    Probe out;
+    if (!map) return out;
+
+    std::uint8_t* player = nullptr;
+    if (!read(owner_of(map) + kOwnerToLocalPlayer, &player)) return out;
+    const void* vftable = nullptr;
+    if (!read(player, &vftable) || !in_module(vftable)) return out;
+
+    std::int64_t x = 0;
+    std::int64_t y = 0;
+    if (!read(player + kPlayerPosX, &x) || !read(player + kPlayerPosY, &y)) return out;
+
+    out.blockX = x / kPosFractionalDivisor;
+    out.blockY = y / kPosFractionalDivisor;
+    out.cellX = static_cast<int>(out.blockX / kBlocksPerCell);
+    out.cellY = static_cast<int>(out.blockY / kBlocksPerCell);
+    out.chunkX = out.cellX >> 6;
+    out.chunkY = out.cellY >> 6;
+    out.subX = out.cellX >> 3;
+    out.subY = out.cellY >> 3;
+    out.valid = true;
+
+    // The marker pass indexes an 8x8 grid of 0x68-byte records that sits after
+    // the cell array; cube::Region builds the same 64 records at its own +0x14018.
+    void* chunk = chunk_at(map, out.chunkX, out.chunkY);
+    if (!chunk) return out;
+    const int index = ((out.subX & 7) * 8 + (out.subY & 7)) * kRecordStride;
+    auto* record = static_cast<std::uint8_t*>(chunk) + kChunkRecords + index;
+    if (!readable(record, sizeof(out.field))) return out;
+
+    out.record = record;
+    std::memcpy(out.field, record, sizeof(out.field));
+    return out;
 }
 
 std::string world_name(WorldMap* map) {

@@ -27,4 +27,18 @@ std::string world_name(WorldMap* map);
 // True when `address` can be read for `size` bytes without faulting.
 bool readable(const void* address, std::size_t size);
 
+// Raw state used to work out which spatial unit the game calls a region.
+// Everything is derived, nothing is assumed to be the answer.
+struct Probe {
+    bool valid = false;
+    long long blockX = 0, blockY = 0;  // player position in blocks
+    int cellX = 0, cellY = 0;          // WorldMap cell (block / 256)
+    int chunkX = 0, chunkY = 0;        // storage chunk (cell / 64)
+    int subX = 0, subY = 0;            // 8x8 subdivision of the chunk (cell / 8)
+    const void* record = nullptr;      // the 0x68 record covering that subdivision
+    unsigned field[8] = {};            // its first dwords, if readable
+};
+
+Probe probe(WorldMap* map);
+
 }  // namespace cw

@@ -3,6 +3,7 @@
 #include <windows.h>
 #include <intrin.h>
 
+#include <climits>
 #include <cstring>
 
 #include "../game/cube_world.hpp"
@@ -73,10 +74,45 @@ bool from_map_renderer(const void* return_address) {
 
 // Everything here runs on the render thread only, which is what makes the
 // unlocked reads in the detour safe; the lock exists for the shutdown flush.
+#ifdef REGIONREVEAL_DIAGNOSTICS
+// Logs a line whenever any candidate granularity changes, so walking until the
+// on-screen region name changes shows which unit moved with it.
+void probe_granularity(cw::WorldMap* map) {
+    static int lastSubX = INT_MIN, lastSubY = INT_MIN, lastChunkX = INT_MIN, lastChunkY = INT_MIN;
+    static unsigned lastField[8] = {};
+    static DWORD lastPeriodic = 0;
+
+    const cw::Probe p = cw::probe(map);
+    if (!p.valid) return;
+
+    const bool moved = p.subX != lastSubX || p.subY != lastSubY ||
+                       p.chunkX != lastChunkX || p.chunkY != lastChunkY;
+    const bool changed = std::memcmp(lastField, p.field, sizeof(lastField)) != 0;
+    const DWORD now = GetTickCount();
+    const bool periodic = now - lastPeriodic >= 10000;
+    if (!moved && !changed && !periodic) return;
+
+    lastSubX = p.subX; lastSubY = p.subY;
+    lastChunkX = p.chunkX; lastChunkY = p.chunkY;
+    std::memcpy(lastField, p.field, sizeof(lastField));
+    lastPeriodic = now;
+
+    log_linef("probe block=(%lld,%lld) cell=(%d,%d) chunk=(%d,%d) sub8=(%d,%d)%s%s",
+              p.blockX, p.blockY, p.cellX, p.cellY, p.chunkX, p.chunkY, p.subX, p.subY,
+              moved ? "  <-- UNIT CHANGED" : "", changed ? "  <-- RECORD CHANGED" : "");
+    if (p.record) {
+        log_linef("  record@%p = %08x %08x %08x %08x %08x %08x %08x %08x",
+                  p.record, p.field[0], p.field[1], p.field[2], p.field[3],
+                  p.field[4], p.field[5], p.field[6], p.field[7]);
+    }
+}
+#endif
+
 void refresh_session(cw::WorldMap* map) {
     const DWORD now = GetTickCount();
     if (now - g_checked < kRecheckMs) return;
     g_checked = now;
+    DIAG(probe_granularity(map));
 
     const std::string world = cw::world_name(map);
     if (world != g_visited.world()) {
