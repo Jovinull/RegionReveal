@@ -1,6 +1,11 @@
 # Intended behaviour vs. what is built
 
-## The gap, stated plainly
+> **Status: implemented.** The three pieces below are built — the player chain
+> replaced the `discover` hook, and visited regions persist per world in
+> `RegionReveal_<world>.visited`. What remains unverified is in-game behaviour;
+> see `docs/AUDIT.md`.
+
+## The gap this document was written about
 
 **What is wanted:** entering a region for the first time marks it as discovered
 by RegionReveal — permanently, from the mod's point of view. Its map, cities,
@@ -8,11 +13,9 @@ dungeons, bosses and structures become visible. Entering further regions adds
 them. **Regions visited earlier stay revealed.** Regions never visited stay
 hidden.
 
-**What is built:** only the region the player is standing in is revealed, and it
-stops being revealed the moment they leave.
-
-This is not a subtle difference and the current behaviour does not satisfy the
-requirement.
+**What was built at the time:** only the region the player was standing in, and
+it stopped being revealed the moment they left. The rest of this document
+records that gap and the fix that closed it.
 
 ## Confirmed by reading the code
 

@@ -118,12 +118,18 @@ and determine whether it can run for an arbitrary cell with no player present.
 | Signatures unique | PASS | Exactly one match per build |
 | Region == map chunk | PASS | Save keys `reg<x>_<y>`; `32768 >> 6 == 512` |
 | Primary target externally corroborated | PASS | Qube-Loader offsets resolve only in 2013-07-20; launcher v1.5 gates on its exact size |
-| Persistent visited-region memory | **FAIL** | One region tracked, in two atomics; old regions revert on leaving (`docs/BEHAVIOUR.md`) |
+| Persistent visited-region memory | PASS (static) | Bitset plus per-world file; previously FAIL |
 | Never reveals unvisited regions | PASS | The chunk comparison rejects everything outside the tracked region; `otherRegion` counted 128 602 rejections |
 | Map cell identified | PASS | `cube::ZoneTile`, via the constructor's vftable write |
 | A/B proves POI reveal | UNVERIFIED | Counters show 38 625 lit from `lit=0`; no side-by-side comparison made |
 | No persistent save mutation | UNVERIFIED | Design writes nothing and `discovered` stayed 13; `reg` blobs never read back |
-| Current player region authoritative | **FAIL** | Still inferred from `discover`. The correct chain is now known (`GameController` at `MapOverlayWidget+0x160`, local `Creature` at `GC+0x8006D0`, position int64 at `+0x10`/`+0x18`) but not wired in |
+| Current player region authoritative | PASS (static) | Read from the local `Creature` via `owner_of(worldMap) + 0x8006D0`; no global, no second hook. Runtime crossing tests still to run |
+| `discover()` dependency removed | PASS | The hook and its signature are gone; one hook remains |
+| Per-world identity | PASS (static) | World name read from `[WorldMap+0xAC]+0x94`, the same string the game concatenates into `Save/map_<name>.db` |
+| Visited-region storage | PASS (static) | 128 KiB bitset in `RegionReveal_<world>.visited`, atomic replace, fail-closed parse |
+| Terrain generator identified | PASS | `0x603A00`, generate path at `0x603F32`, writes back at `0x604E3C` (`docs/POI_AND_TERRAIN.md`) |
+| Arbitrary tile generation | **FAIL** | The generate path is guarded on a resident 256x256 terrain array that exists only near the player |
+| Marker pass understood | PASS | Two draw passes; the marker pass gates on the reveal bit alone, which is why the `+0x10` filter was removed |
 | Adjacent region stays hidden | UNVERIFIED | `otherRegion` rises at the boundary — consistent, but never seen on screen |
 | City / dungeon / boss separately | UNKNOWN | No POI type field identified |
 | Terrain reveal understood | PARTIAL | Mechanism identified; generation path not found |
