@@ -2,6 +2,7 @@
 
 #include <windows.h>
 
+#include <algorithm>
 #include <cstdio>
 #include <cstring>
 
@@ -12,16 +13,20 @@ namespace rr {
 namespace {
 
 constexpr char kMagic[4] = {'R', 'R', 'V', 'S'};
-constexpr std::uint32_t kVersion = 1;
-constexpr std::size_t kBitsBytes = (cw::kGridDim * cw::kGridDim) / 8;  // 128 KiB
+
+// Version 2. Version 1 keyed on the 64x64-cell storage chunk, which is not what
+// the game calls a region; those files describe the wrong thing and are rejected
+// rather than converted.
+constexpr std::uint32_t kVersion = 2;
 constexpr std::uint32_t kMaxWorldName = 64;
+constexpr std::uint32_t kMaxRegions = 1u << 20;  // far beyond any real playthrough
 
 #pragma pack(push, 1)
 struct Header {
     char magic[4];
     std::uint32_t version;
-    std::uint32_t gridDim;
-    std::uint32_t bitsBytes;
+    std::uint32_t regionDim;
+    std::uint32_t count;
     std::uint32_t worldLength;
 };
 #pragma pack(pop)
@@ -55,23 +60,26 @@ std::wstring beside_game(const std::string& world, const wchar_t* suffix) {
 
 }  // namespace
 
+std::uint32_t region_key(int x, int y) {
+    return (static_cast<std::uint32_t>(x) << 16) | static_cast<std::uint32_t>(y);
+}
+
 void VisitedRegions::open(const std::string& world) {
     if (world == world_) return;
 
     flush();
     world_.clear();
-    bits_.clear();
+    keys_.clear();
     dirty_ = false;
 
     if (!usable_world_name(world)) return;
 
     world_ = world;
-    bits_.assign(kBitsBytes, 0);
     if (load()) {
-        log_linef("visited regions loaded for world '%s'", world_.c_str());
+        log_linef("visited: %u regions loaded for world '%s'",
+                  static_cast<unsigned>(keys_.size()), world_.c_str());
     } else {
-        log_linef("no usable visited-region file for world '%s'; starting empty",
-                  world_.c_str());
+        log_linef("visited: no usable file for world '%s'; starting empty", world_.c_str());
     }
 }
 
@@ -87,43 +95,47 @@ bool VisitedRegions::load() {
     std::string stored;
     if (std::fread(&header, sizeof(header), 1, file) == 1 &&
         std::memcmp(header.magic, kMagic, sizeof(kMagic)) == 0 && header.version == kVersion &&
-        header.gridDim == cw::kGridDim && header.bitsBytes == kBitsBytes &&
+        header.regionDim == cw::kRegionDim && header.count <= kMaxRegions &&
         header.worldLength > 0 && header.worldLength <= kMaxWorldName) {
         stored.resize(header.worldLength);
         if (std::fread(&stored[0], 1, header.worldLength, file) == header.worldLength &&
             stored == world_) {
-            ok = std::fread(bits_.data(), 1, kBitsBytes, file) == kBitsBytes;
+            keys_.resize(header.count);
+            ok = header.count == 0 ||
+                 std::fread(keys_.data(), sizeof(std::uint32_t), header.count, file) ==
+                     header.count;
+            // A file claiming to be sorted but is not would break the lookup, so
+            // it is treated as damaged rather than repaired.
+            if (ok && !std::is_sorted(keys_.begin(), keys_.end())) ok = false;
         }
     }
     std::fclose(file);
 
-    // Every rejection path leaves the set empty rather than partly filled, so a
-    // damaged file can only lose knowledge, never invent it.
-    if (!ok) bits_.assign(kBitsBytes, 0);
+    if (!ok) keys_.clear();
     return ok;
 }
 
 bool VisitedRegions::contains(int x, int y) const {
-    if (bits_.empty()) return false;
-    if (x < 0 || y < 0 || x >= cw::kGridDim || y >= cw::kGridDim) return false;
-    const std::size_t bit = static_cast<std::size_t>(x) * cw::kGridDim + y;
-    return (bits_[bit >> 3] >> (bit & 7)) & 1;
+    if (x < 0 || y < 0 || x >= cw::kRegionDim || y >= cw::kRegionDim) return false;
+    return std::binary_search(keys_.begin(), keys_.end(), region_key(x, y));
 }
 
 bool VisitedRegions::add(int x, int y) {
-    if (bits_.empty()) return false;
-    if (x < 0 || y < 0 || x >= cw::kGridDim || y >= cw::kGridDim) return false;
-    const std::size_t bit = static_cast<std::size_t>(x) * cw::kGridDim + y;
-    const std::uint8_t mask = static_cast<std::uint8_t>(1u << (bit & 7));
-    if (bits_[bit >> 3] & mask) return false;
+    if (world_.empty()) return false;
+    if (x < 0 || y < 0 || x >= cw::kRegionDim || y >= cw::kRegionDim) return false;
+    if (keys_.size() >= kMaxRegions) return false;
 
-    bits_[bit >> 3] |= mask;
+    const std::uint32_t key = region_key(x, y);
+    const auto at = std::lower_bound(keys_.begin(), keys_.end(), key);
+    if (at != keys_.end() && *at == key) return false;
+
+    keys_.insert(at, key);
     dirty_ = true;
     return true;
 }
 
 void VisitedRegions::flush() {
-    if (!dirty_ || bits_.empty() || world_.empty()) return;
+    if (!dirty_ || world_.empty()) return;
 
     const std::wstring path = beside_game(world_, L".visited");
     const std::wstring temp = beside_game(world_, L".visited.tmp");
@@ -135,13 +147,15 @@ void VisitedRegions::flush() {
     Header header{};
     std::memcpy(header.magic, kMagic, sizeof(kMagic));
     header.version = kVersion;
-    header.gridDim = cw::kGridDim;
-    header.bitsBytes = kBitsBytes;
+    header.regionDim = cw::kRegionDim;
+    header.count = static_cast<std::uint32_t>(keys_.size());
     header.worldLength = static_cast<std::uint32_t>(world_.size());
 
-    const bool written = std::fwrite(&header, sizeof(header), 1, file) == 1 &&
-                         std::fwrite(world_.data(), 1, world_.size(), file) == world_.size() &&
-                         std::fwrite(bits_.data(), 1, kBitsBytes, file) == kBitsBytes;
+    const bool written =
+        std::fwrite(&header, sizeof(header), 1, file) == 1 &&
+        std::fwrite(world_.data(), 1, world_.size(), file) == world_.size() &&
+        (keys_.empty() ||
+         std::fwrite(keys_.data(), sizeof(std::uint32_t), keys_.size(), file) == keys_.size());
     std::fclose(file);
 
     if (!written) {

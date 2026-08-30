@@ -6,16 +6,19 @@
 
 namespace rr {
 
-// Which regions RegionReveal considers visited, in its own file beside the game.
+// Which gameplay regions RegionReveal considers visited, in its own file beside
+// the game.
 //
-// The game's save is never involved: Cube World persists a region's cells
+// The game's save is never involved: Cube World persists a storage chunk's cells
 // wholesale, so a reveal bit written into one would be saved, which is exactly
 // what this mod avoids. Keeping the record separate also means deleting the file
 // resets the mod and nothing else.
 //
-// Storage is one bit per region, 1024 x 1024 regions, so 128 KiB flat. Anything
-// unreadable, truncated or belonging to a different world yields an empty set:
-// a corrupt file must never reveal a region, only fail to remember one.
+// A region is 8x8 cells and the world is 8192 regions per axis, so a full bitset
+// would be 8 MiB of almost entirely zeroes. A player visits hundreds, so the
+// file is a sorted list of the ones actually seen. Anything unreadable, of the
+// wrong version, or belonging to a different world yields an empty set: a
+// damaged file must never reveal a region, only fail to remember one.
 class VisitedRegions {
 public:
     // Switches to `world`, loading its file. An empty name closes the set.
@@ -32,14 +35,18 @@ public:
     void flush();
 
     const std::string& world() const { return world_; }
-    bool open() const { return !world_.empty(); }
+    std::size_t size() const { return keys_.size(); }
 
 private:
     bool load();
 
     std::string world_;
-    std::vector<std::uint8_t> bits_;
+    std::vector<std::uint32_t> keys_;  // sorted; (x << 16) | y
     bool dirty_ = false;
 };
+
+// Packs a region coordinate pair into the key the file stores. Both axes fit in
+// 13 bits, so 16 bits each leaves the format room to grow.
+std::uint32_t region_key(int x, int y);
 
 }  // namespace rr
