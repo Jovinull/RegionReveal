@@ -240,12 +240,17 @@ void refresh_session(cw::WorldMap* map) {
 
     g_region = region;
     g_shadows.reset();
-    if (!g_visited.visit(region.x, region.y)) return;
 
-    log_linef("visited region (%d,%d) in world '%s'; survey radius %d -> %u regions covered",
-              region.x, region.y, g_visited.world().c_str(), rr::kSurveyRadius,
+    // Dumped whenever the region changes, not only on a first visit. An earlier
+    // build logged it only for a new centre, so re-entering a known world -
+    // which is the normal case - produced no survey at all.
+    const bool isNew = g_visited.visit(region.x, region.y);
+    log_linef("%s region (%d,%d) in world '%s'; radius %d -> %u regions covered",
+              isNew ? "visited NEW" : "re-entered", region.x, region.y,
+              g_visited.world().c_str(), rr::kSurveyRadius,
               static_cast<unsigned>(g_visited.covered()));
     log_survey(map, region);
+    if (!isNew) return;
 
     EnterCriticalSection(&g_lock);
     g_visited.flush();
