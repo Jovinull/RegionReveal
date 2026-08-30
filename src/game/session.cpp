@@ -151,6 +151,29 @@ Probe probe(WorldMap* map) {
     return out;
 }
 
+Landmark landmark_at(WorldMap* map, int regionX, int regionY) {
+    Landmark out;
+    if (!map) return out;
+    if (regionX < 0 || regionY < 0 || regionX >= kRegionDim || regionY >= kRegionDim) return out;
+
+    // A region is 8 cells; the chunk holding it is 64 cells wide.
+    const int cellX = regionX * kRegionCells;
+    const int cellY = regionY * kRegionCells;
+    void* chunk = chunk_at(map, cellX >> 6, cellY >> 6);
+    if (!chunk) return out;
+
+    const int index = ((regionX & 7) * 8 + (regionY & 7)) * kRecordStride;
+    auto* record = static_cast<std::uint8_t*>(chunk) + kChunkRecords + index;
+    unsigned raw = 0;
+    if (!read(record + kRecordLandmark, &raw)) {
+        out.status = LandmarkLookup::Unreadable;
+        return out;
+    }
+    out.status = LandmarkLookup::Ok;
+    out.raw = raw;
+    return out;
+}
+
 std::string world_name(WorldMap* map) {
     if (!map) return {};
 

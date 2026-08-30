@@ -51,4 +51,16 @@ struct Probe {
 
 Probe probe(WorldMap* map);
 
+// What a gameplay region's 0x68 record says its landmark is.
+enum class LandmarkLookup { Ok, NoChunk, Unreadable };
+
+struct Landmark {
+    LandmarkLookup status = LandmarkLookup::NoChunk;
+    unsigned raw = 0;
+};
+
+// Reads the landmark type for an arbitrary region. A region whose storage chunk
+// is not resident reports NoChunk rather than inventing a value.
+Landmark landmark_at(WorldMap* map, int regionX, int regionY);
+
 }  // namespace cw

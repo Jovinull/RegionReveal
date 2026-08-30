@@ -26,6 +26,7 @@ inline constexpr int kMapDim = kGridDim * kChunkDim;  // 65536 cells per axis
 // set at its own +0x14018, from the same constructor.
 inline constexpr int kChunkRecords = kChunkDim * kChunkDim * kCellStride;  // 0x34000
 inline constexpr int kRecordStride = 0x68;
+inline constexpr int kRecordLandmark = 0x18;  // the type the marker pass draws
 
 // A gameplay region is the 8x8 block of cells that one 0x68 record covers:
 // 8 * 256 = 2048 blocks per axis. The record carries the marker type the map's
