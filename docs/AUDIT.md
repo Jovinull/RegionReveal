@@ -106,6 +106,28 @@ run past the evidence; calling it cheap would too.
 The experiment that settles it: locate the function that produces a `tile` record
 and determine whether it can run for an arbitrary cell with no player present.
 
+## Marker reveal, proven side by side
+
+The one thing counters could never settle. Same world, same position, map opened
+both times:
+
+| | Landmark labels drawn |
+|---|---|
+| RegionReveal loaded | **24** |
+| `dinput8.dll` renamed away | **2** |
+
+The two that survive are `GAGAR FOREST`, the region the player was standing in,
+and `ASMI CITY`, one they had already discovered. **Twenty-two labels exist only
+because of the mod.** The terrain is pixel-identical between the two, which is
+what the design predicts: the mod answers a visibility question, it does not
+generate ground.
+
+The screenshot also settled four landmark values by counting them against the
+same world's save over the 30-region survey - raw 1 drew two CITY labels, raw 2
+three MOUNTAINS, raw 3 two FOREST, raw 4 one LAKE - and falsified the rest of the
+table, where eleven raw-14 regions produced six temples. Those names were
+withdrawn; see `src/game/landmarks.hpp`.
+
 ## Acceptance matrix
 
 | Requirement | Status | Evidence |

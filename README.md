@@ -3,11 +3,11 @@
 Reveals cities, dungeons, bosses and other points of interest when entering a
 region in Cube World Alpha.
 
-> **Experimental — incomplete against its own goal.** It reveals POI markers in
-> the region the player is standing in, and only while they stand there: leave,
-> and that region goes dark again. Persistent visited-region memory is not built,
-> and revealing a region's *terrain* is a separate unsolved problem.
-> See [`docs/BEHAVIOUR.md`](docs/BEHAVIOUR.md) and [`docs/AUDIT.md`](docs/AUDIT.md).
+> **Marker reveal works, proven side by side.** In one world, from the same spot:
+> the map drew **24 landmark labels with the mod loaded and 2 without it**. The
+> two survivors are the region the player was standing in and a city they had
+> already found. Terrain is a separate, unsolved problem - the map fills in with
+> names, not ground. See [`docs/AUDIT.md`](docs/AUDIT.md).
 
 ## What it does
 
