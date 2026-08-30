@@ -42,6 +42,7 @@ struct Counters {
     unsigned rendering;
     unsigned outside_visited;
     unsigned already_lit;
+    unsigned no_content;
     unsigned revealed;
     unsigned long long cycles;
 };
@@ -53,9 +54,9 @@ void report() {
     if (now - g_reported < 5000) return;
     g_reported = now;
     const unsigned long long per_call = g_diag.calls ? g_diag.cycles / g_diag.calls : 0;
-    log_linef("map draw: calls=%u rendering=%u | outsideVisited=%u alreadyLit=%u REVEALED=%u",
+    log_linef("map draw: calls=%u rendering=%u | outsideVisited=%u alreadyLit=%u noContent=%u REVEALED=%u",
               g_diag.calls, g_diag.rendering, g_diag.outside_visited, g_diag.already_lit,
-              g_diag.revealed);
+              g_diag.no_content, g_diag.revealed);
     log_linef("  cost=%llu cycles over %u calls = %llu/call | region=(%d,%d) world='%s'",
               g_diag.cycles, g_diag.calls, per_call, g_region.x, g_region.y,
               g_visited.world().c_str());
@@ -102,7 +103,7 @@ void refresh_session(cw::WorldMap* map) {
 // once, so hand out copies from a small per-thread ring rather than one scratch
 // cell. The game's own data is never written to.
 cw::MapCell* shadow_of(cw::MapCell* cell) {
-    constexpr int kSlots = 16;
+    constexpr int kSlots = 64;
     thread_local std::uint8_t ring[kSlots][cw::kCellStride];
     thread_local int next = 0;
 
@@ -140,14 +141,25 @@ cw::MapCell* __fastcall get_cell_detour(cw::WorldMap* self, void*, int x, int y)
         DIAG(++g_diag.already_lit);
         return cell;
     }
+    // Only cells the game itself considers to have content.
+    //
+    // Static reading says the marker pass at 0x4CA4FB tests the reveal bit alone,
+    // so this filter looked unnecessary and was dropped. Reporting every cell of
+    // a region as revealed then crashed the game: 0xC0000409 (stack buffer
+    // overrun, /GS) inside the draw after ~7 minutes and 82 million shadowed
+    // cells, preceded by a RADAR_PRE_LEAK memory-growth event. The build that
+    // kept the filter shadowed 38 625 cells over a comparable session and did
+    // not crash.
+    //
+    // The draw has a bounded appetite that this filter was holding it under.
+    // Until that bound is located and respected explicitly, the filter stays:
+    // showing fewer markers is a limitation, crashing is a defect.
+    if (*cw::cell_content(cell) == 0) {
+        DIAG(++g_diag.no_content);
+        return cell;
+    }
+
     DIAG(++g_diag.revealed);
-
-    // Deliberately not filtered on the cell's +0x10 field. The draw method makes
-    // two passes: the terrain pass at 0x4C9831 needs both +0x10 and the reveal
-    // bit, but the marker pass at 0x4CA4FB tests only the reveal bit and takes
-    // its icon from a different object. Skipping cells with +0x10 == 0 would
-    // hide markers the game would otherwise have drawn.
-
     return shadow_of(cell);
 }
 

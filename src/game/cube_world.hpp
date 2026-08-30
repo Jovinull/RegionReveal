@@ -23,7 +23,8 @@ inline constexpr int kMapDim = kGridDim * kChunkDim;  // 65536 cells per axis
 
 // Offsets inside a map cell. The cell is cube::ZoneTile: its constructor
 // writes that class's RTTI vftable.
-inline constexpr int kCellFlags = 0x30;  // bit 0 = revealed on the world map
+inline constexpr int kCellContent = 0x10;  // non-zero for cells the terrain pass draws
+inline constexpr int kCellFlags = 0x30;    // bit 0 = revealed on the world map
 inline constexpr std::uint8_t kRevealedBit = 0x01;
 
 // Offsets inside cube::WorldMap.
@@ -61,6 +62,10 @@ inline int region_of(int cell) { return cell >> 6; }
 
 inline std::uint8_t* cell_flags(MapCell* cell) {
     return reinterpret_cast<std::uint8_t*>(cell) + kCellFlags;
+}
+
+inline std::uint8_t* cell_content(MapCell* cell) {
+    return reinterpret_cast<std::uint8_t*>(cell) + kCellContent;
 }
 
 inline std::uint8_t* owner_of(WorldMap* map) {
