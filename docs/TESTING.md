@@ -73,6 +73,7 @@ need a debugger (x32dbg) rather than the mod:
   from `discover` alone.
 - Breakpoint the `Database` set call in `0x6033E2` / `0x603645` / `0x603A00` and
   determine whether chunk cell bytes are what gets written.
-- Inspect `WorldMap+0x90..0x9C` while crossing a region boundary. If one pair
-  tracks the current region, region detection should move to it and the
-  `discover` hook can be dropped entirely.
+- `WorldMap+0x90..0x9C` was suggested here as a possible current-region field.
+  **That lead is closed:** those fields are written only by the constructor, to
+  `-1`, and by nothing else in the translation unit. A different authoritative
+  source is still needed; see `docs/AUDIT.md`.

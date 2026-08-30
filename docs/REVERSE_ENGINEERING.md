@@ -13,7 +13,9 @@ Findings are tagged:
   observed at runtime.
 - **HYPOTHESIS** — plausible reading, not yet supported enough to build on.
 
-Nothing here has been validated dynamically; see "What is still unverified".
+Some of this has since been checked against a running game and against a real
+save file; `docs/AUDIT.md` records which claims survived an attempt to falsify
+them and which did not.
 
 ## Method
 
@@ -75,24 +77,32 @@ The instance is reached from `cube::MapOverlayWidget` as
 if (x < 0 || y < 0 || x >= 0x10000 || y >= 0x10000) return nullptr;
 chunk = this->chunkGrid[(x >> 6) * 1024 + (y >> 6)];
 if (!chunk) return nullptr;
-return (char*)chunk + 8 + ((x & 63) * 64 + (y & 63)) * 0x34;
+return (char*)chunk + ((x & 63) * 64 + (y & 63)) * 0x34;
 ```
 
 So the map is **65536 × 65536 cells**, stored as a sparse **1024 × 1024 grid of
-chunks**, each chunk holding **64 × 64 cells of 0x34 bytes** after an 8-byte
-header.
+chunks**, each chunk holding **64 × 64 cells of 0x34 bytes** starting at the chunk itself.
+There is no header — an earlier revision of this document claimed eight bytes of
+one, which was wrong. The chunk constructor `0x5FAE00` runs the MSVC vector
+constructor iterator over `0x1000` elements of size `0x34` at the chunk base,
+then builds 64 objects of `0x68` at `chunk + 0x34000`; `0x34000 + 64*0x68 =
+0x35A00`, exactly the allocation at `0x6032CB`.
 
 A second accessor at `0x6023B0` takes coordinates in units of 8 cells
 (bounds `0x2000`), i.e. a coarser view of the same grid. Only the map draw
 calls it.
 
-### Map cell fields — CONFIRMED for `0x30`, partial otherwise
+### The map cell is `cube::ZoneTile` — CONFIRMED
+
+The cell constructor at `0x5FB7F0` writes vftable `0x71DFBC`, which the RTTI
+scan resolves to `.?AVZoneTile@cube@@`. The cell is a named game class, not an
+anonymous record.
 
 `0x34` bytes. Two fields are established:
 
 | Offset | Meaning |
 |---|---|
-| `0x10` | non-zero for cells the renderer will draw; zero means "nothing here" |
+| `0x10` | non-zero for cells the renderer will draw; zero means it is skipped. **HYPOTHESIS:** the handle to that cell's loaded 32×32 tile image — see `docs/AUDIT.md` |
 | `0x30` | flags; **bit 0 = revealed on the world map** |
 
 The remaining 50 bytes are not identified and are deliberately left unnamed.
@@ -139,13 +149,15 @@ what shapes the design in `docs/../README.md`.
 confirmed by opening the shipped `Save/worlds.db`), and reads the key
 `"discovered"` into `this+0x8000BC`. `0x601F80` writes the same key back.
 
-So the *counter* is persisted under `"discovered"`. Where the per-cell `0x30`
-bits are written is **not yet established** — `0x6024D0`, `0x6033E2`, `0x603645`
-and `0x603A00` all call the same `Database` get/set pair and are the obvious
-candidates.
+So the *counter* is persisted under `"discovered"`. The rest of the schema is now
+known from reading a real save: `0x603230` loads and `0x605420` stores
+`reg<x>_<y>` (the chunk), `0x6024D0` handles `land<x>_<y>` and `0x603A00`
+handles `tile<x>_<y>`. Chunks **are** persisted, whole — `0x605420` serialises
+across `0x34000` bytes — so a written reveal bit would reach the save file.
 
-**This is why RegionReveal never writes to a cell.** Until chunk persistence is
-mapped, setting a reveal bit must be assumed to reach the save file.
+**This is why RegionReveal never writes to a cell** — and the reason is now
+established rather than precautionary: chunk persistence is mapped, and it copies
+the cell bytes wholesale, so a reveal bit written into a cell would be saved.
 
 ## Regions
 
@@ -155,11 +167,14 @@ at `0x5C3AC0`. The constructor fills **4096 entries of 16 bytes** starting at
 
 4096 = 64 × 64, which is the same shape as a world-map chunk.
 
-**HYPOTHESIS:** one `cube::Region` corresponds to one 64 × 64 map chunk. The
-shapes match and nothing contradicts it, but no code path linking a `Region` to
-a chunk index has been found. RegionReveal therefore does **not** use
-`cube::Region` at all; it works in terms of the chunk, which is a structure the
-map itself is built from.
+**CONFIRMED, by a different route:** the game's own save names map chunks
+`reg<x>_<y>`. A live save holds `reg509_509` through `reg515_515` while the
+player's chunk was `(512, 512)`, and `32768 >> 6 == 512`. The 64 × 64 map chunk
+*is* what Cube World calls a region.
+
+The `cube::Region` **class** is a separate matter: far larger, and no code path
+links it to a chunk index. RegionReveal does not use it. The shape coincidence
+that prompted the original hypothesis is noted and left at that.
 
 ### Player position → map cell — STRONG EVIDENCE
 
@@ -182,9 +197,11 @@ mod and is called out in the README's limitations.
 
 ## What is still unverified
 
-- Whether cell `0x30` bits are written to `Save/map_*`.
-- What the four `-1` ints at `WorldMap+0x90` track — a "current region" field
-  there would be a much better region source than the `discover` hook.
+- Which serialized byte of a `reg` record holds the reveal bit. The record format
+  resisted decoding and a falsification test failed; see `docs/AUDIT.md`.
+- Who writes `ZoneTile+0x10`.
+- `WorldMap+0x90..0x9C` is a **closed** lead: written only by the constructor,
+  to `-1`, and by nothing else in the translation unit.
 - Whether `discover(x, y)` always refers to the local player.
 - Which cell field distinguishes a city from a dungeon from a boss. **No POI
   type field has been identified**, so per-category configuration is not

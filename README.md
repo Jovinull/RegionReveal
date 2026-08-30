@@ -3,8 +3,10 @@
 Reveals cities, dungeons, bosses and other points of interest when entering a
 region in Cube World Alpha.
 
-> **Status: loads and hooks cleanly in the running game; the reveal itself is
-> still untested.** See [Status](#status) before using it.
+> **Experimental.** POI markers are revealed on both supported builds, evidenced
+> by live counters but not yet by a side-by-side comparison. Revealing the
+> region's *terrain* is a separate problem that is understood but unsolved.
+> See [Status](#status) and [`docs/AUDIT.md`](docs/AUDIT.md).
 
 ## What it does
 
