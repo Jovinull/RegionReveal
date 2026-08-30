@@ -1,114 +1,103 @@
-# Intended behaviour vs. what is built
+# Region behaviour
 
-> **Status: implemented.** The three pieces below are built — the player chain
-> replaced the `discover` hook, and visited regions persist per world in
-> `RegionReveal_<world>.visited`. What remains unverified is in-game behaviour;
-> see `docs/AUDIT.md`.
+## What is wanted
 
-## The gap this document was written about
+Entering a region for the first time marks it as discovered by RegionReveal —
+permanently, from the mod's point of view. Its markers become visible. Entering
+further regions adds them. Regions visited earlier stay revealed. Regions never
+visited, and regions belonging to another world, stay hidden. The game's own
+save is never touched.
 
-**What is wanted:** entering a region for the first time marks it as discovered
-by RegionReveal — permanently, from the mod's point of view. Its map, cities,
-dungeons, bosses and structures become visible. Entering further regions adds
-them. **Regions visited earlier stay revealed.** Regions never visited stay
-hidden.
+## What was wrong before
 
-**What was built at the time:** only the region the player was standing in, and
-it stopped being revealed the moment they left. The rest of this document
-records that gap and the fix that closed it.
+The mod tracked a single region in two integers, overwritten on every
+`WorldMap::discover` call, and revealed a cell only on an exact match. Crossing
+into a new region made the previous one stop matching, so it reverted to whatever
+the player had genuinely explored. Current-region only, with no memory.
 
-## Confirmed by reading the code
+The region also came from `discover`, whose three callers include two that
+iterate lists — so the coordinate could belong to another creature. With
+persistence that flaw would have got worse: a wrong region would no longer be a
+transient glitch, it would be written down.
 
-`src/region_reveal/reveal.cpp` holds one region, as two integers:
+## What is built now
 
-```cpp
-std::atomic<int> g_region_x{-1};
-std::atomic<int> g_region_y{-1};
-```
+### The region comes from the local player
 
-`discover_detour` overwrites them on every call:
-
-```cpp
-g_region_x.store(cw::chunk_of(x), std::memory_order_relaxed);
-g_region_y.store(cw::chunk_of(y), std::memory_order_relaxed);
-```
-
-and `get_cell_detour` reveals a cell only on an exact match:
+`WorldMap::getCell` is a `WorldMap` method, and the `WorldMap` is constructed in
+place inside its owner at `+0x800D44` — `lea ecx, [ebx + 0x800D44]` sits directly
+before the constructor call at `0x45A5B2`. So the detour recovers the owner by
+subtraction from its own `this`, with no global and no second hook:
 
 ```cpp
-if (cw::chunk_of(x) != g_region_x.load(...) ||
-    cw::chunk_of(y) != g_region_y.load(...)) {
-    return cell;            // not revealed
-}
+owner  = (uint8_t*)worldMap - 0x800D44;
+player = *(Creature**)(owner + 0x8006D0);
+cellX  = (*(int64_t*)(player + 0x10) / 65536) / 256;
+region = cellX >> 6;
 ```
 
-So the moment the player crosses into a new region, the previous one no longer
-matches and reverts to whatever the player genuinely explored. **Current-region
-only, with no memory.** The live diagnostic is consistent with this: the
-`otherRegion` counter climbed to 128 602 as the player moved, which is exactly
-this branch rejecting cells.
+`+0x8006D0` is corroborated twice: the map renderer itself reads it at
+`0x4C98C4` through `[MapOverlayWidget + 0x160]`, and Qube-Loader documents the
+same field as the local `Creature*`. The position conversion mirrors what the
+game does at `0x488430` before calling `discover`.
 
-## What the fix requires
+The player slot is empty on the title screen, so the read is guarded: the pointer
+must be committed memory and its vftable must point inside the loaded image.
+Anything else yields an invalid region and reveals nothing.
 
-Three pieces, none of them cosmetic.
+**The `discover` hook is gone**, along with its byte signature. One hook remains.
 
-### 1. A set of visited regions instead of one pair
+The chain is re-read at most every 250 ms. A region is 64 cells of 256 blocks, so
+the player cannot cross one faster than that, and the map draw would otherwise
+walk the pointer chain millions of times per frame for an answer that cannot have
+changed.
 
-The region grid is 1024 x 1024, so a bitset covering every region in the world is
-`1024 * 1024 / 8` = **128 KiB** — small enough to hold in memory and write out
-whole. Membership becomes one bit test in the detour, which is cheaper than the
-two atomic loads it replaces.
+### Visited regions persist per world
 
-### 2. RegionReveal's own storage, beside the game's
+`src/region_reveal/visited.cpp` keeps one bit per region — 1024 x 1024 regions,
+128 KiB flat — in `RegionReveal_<world>.visited` beside the game.
 
-The game's save must stay untouched — that constraint has not changed, and
-`docs/AUDIT.md` records why it matters: chunk persistence copies the cell bytes
-wholesale, so anything written into a cell is saved.
+The world key is the name the game itself uses: a `std::string` at
+`[WorldMap+0xAC] + 0x94`, which `0x5FBC90` concatenates as
+`"Save/map_" + name + ".db"`. Using the same identity the game uses means the
+mod's file and the game's save always agree about which world is loaded.
 
-A separate file (`RegionReveal.visited` next to `Cube.exe`, say) keeps the mod's
-knowledge entirely outside the game's data. Deleting it resets the mod and
-nothing else; deleting the DLL leaves no trace at all.
+Defensive choices, all of which fail towards revealing *less*:
 
-**Open problem: it has to be keyed per world.** The save already names worlds —
-`Save/map_saddsa.db`, `Save/map_sdaads.db` — and `0x5FBC90` builds that path from
-a string at `[WorldMap+0xAC] + 0x94`. Reading that string gives the world name to
-key the file by. Until that is done, a single shared file would leak one world's
-visited regions into another, which would reveal regions the player has never
-been to in *that* world — precisely what the requirement forbids.
+- the name must be alphanumeric plus `-` and `_`, so a crafted name cannot write
+  outside the game folder;
+- the header carries a magic, a version, the grid dimensions and the world name,
+  and **any** mismatch — wrong magic, wrong version, wrong size, different world,
+  short read — leaves the set empty rather than partly filled;
+- writes go to a temporary and are moved into place with `MOVEFILE_REPLACE_EXISTING`,
+  so an interrupted write cannot truncate the real file;
+- the set is written only when a region is newly added, and once more on unload.
 
-### 3. An authoritative "which region is the player in"
+A corrupt file can therefore lose knowledge. It cannot invent it, and it cannot
+reveal a region the player has not been to.
 
-Today this is inferred from `WorldMap::discover(x, y)`, whose callers iterate
-lists, so the coordinate may belong to another creature. With a *persistent* set
-that flaw gets worse rather than better: a wrong region is no longer a transient
-glitch, it is written down and stays revealed.
+### Markers are no longer filtered on `+0x10`
 
-The chain is now known (see `docs/QUBE_COMPATIBILITY.md`):
+The draw method makes two passes. The terrain pass at `0x4C9831` needs both
+`cell[0x10] != 0` and the reveal bit; the marker pass at `0x4CA4FB` tests **only**
+the reveal bit and takes its icon from a separate record. The mod used to skip
+cells whose `+0x10` was zero, which was correct reasoning about the terrain pass
+and wrong about the marker pass — it hid markers the game would have drawn. That
+filter is gone. See `docs/POI_AND_TERRAIN.md`.
 
-```
-GameController* gc     = *(void**)0x0076B1C8;
-Creature*       player = *(void**)((char*)gc + 0x8006D0);
-int64_t         posX   = *(int64_t*)((char*)player + 0x10);
-int64_t         posY   = *(int64_t*)((char*)player + 0x18);
-cellX = (posX / 65536) >> 8;   regionX = cellX >> 6;
-```
+## What still limits the outcome
 
-Corroborated twice: `0x0076B1C8` is a `.data` global with 45 code references, and
-the map renderer itself reads `GC + 0x8006D0` at `0x4C98C4` — reached through
-`[MapOverlayWidget + 0x160]`, which is therefore the `GameController`.
+Terrain. A cell's terrain is a 32 x 32 image the game generates from a resident
+256 x 256 array of block columns and then writes into the save. The generator is
+guarded on that array being present, and it is present only near the player. So a
+visited region shows its **markers**, not its map.
 
-That last point matters for policy: the widget already carries a pointer to the
-`GameController`, so the player can be reached **without hard-coding
-`0x0076B1C8`**, keeping the "no absolute addresses" rule intact. It needs the
-draw method hooked to capture the widget, which is a design change, not a patch.
+`docs/POI_AND_TERRAIN.md` has the chain and why this is Result B rather than
+Result C.
 
-## Terrain still limits the outcome
+## What has not been observed
 
-Even with all three pieces done, a visited region would show its **markers**, not
-its terrain. A cell whose `ZoneTile+0x10` is zero is skipped by the renderer
-before the reveal bit is consulted, and that field is tied to a 32x32 `tile`
-image the game generates per cell during exploration. `docs/AUDIT.md` covers the
-evidence and why this is Result B rather than Result C.
-
-So "full region map" is a separate problem from "persistent visited regions", and
-neither is solved by the other.
+All of the above is built and builds clean, and the mod loads and hooks in the
+running game. **None of the region behaviour has been watched in play**: not a
+boundary crossing, not a reload, not two worlds. `docs/TESTING.md` has the
+procedure; `docs/AUDIT.md` marks these rows accordingly.
