@@ -11,20 +11,24 @@ region in Cube World Alpha.
 
 ## What it does
 
-Cube World Alpha's world map draws a cell only when bit 0 of that cell's flags
-is set — the bit the game sets as you walk over the terrain. RegionReveal makes
-the map *report* that bit as set for the whole 64 × 64-cell chunk the player is
-currently in, so the cities, dungeons and other markers already generated in that
-chunk appear at once instead of one square at a time.
+Cube World Alpha's world map draws a landmark only when the map cell carrying it
+has bit 0 of its flags set — the bit the game sets as you walk over that ground.
+RegionReveal makes the map *report* that bit as set across a 5 × 5 block of
+gameplay regions centred on one the player actually entered.
+
+A gameplay region is 8 × 8 map cells, 2048 blocks per axis, and carries exactly
+one landmark. Entering one surveys its neighbourhood; the regions genuinely
+entered are what gets remembered, and the coverage is derived from them, so the
+radius can change later without invalidating anyone's history.
 
 It does this **without writing to the game's memory or save files**. The detour
 returns a copy of the cell with the bit flipped, and only to the map renderer;
 the real cell is never touched, so nothing is persisted and nothing outside the
 map ever sees a different answer.
 
-Neighbouring regions are unaffected — walk into one and it reveals in turn, but
-**the one behind you stops being revealed**. That is the main gap against the
-intended behaviour; see [`docs/BEHAVIOUR.md`](docs/BEHAVIOUR.md).
+Regions stay revealed once surveyed, across sessions, kept per world in
+`RegionReveal_<world>.visited` beside the game. Regions no survey has reached
+stay hidden.
 
 ## What it does not do
 
@@ -93,61 +97,61 @@ Back up your `Save/` folder before playing with any mod, this one included.
 
 Two 5-byte detours, both on `cube::WorldMap` methods found by signature:
 
-| Hook | Purpose |
-|---|---|
-| `WorldMap::getCell(x, y)` | Calls the original. If the caller is inside the map draw method **and** the cell is in the player's current chunk, returns a copy with the reveal bit set. Otherwise returns the original cell untouched. |
-| `WorldMap::discover(x, y)` | Pass-through. Only reads `x, y` to learn which chunk the player is in. |
+One 5-byte detour, on `cube::WorldMap::getCell(x, y)`, found by signature. It
+calls the original; if the caller is inside the map draw method and the cell sits
+in a surveyed region, it returns a copy with the reveal bit set. Otherwise the
+real cell goes back untouched.
 
 The return-address check matters: `getCell` has nine callers, and only the map
 renderer should see the modified answer. Gameplay code asking the same question
 keeps getting the truth, which is what stops the mod from leaking into fast
 travel or progression.
 
+The player's region comes from the local `Creature`, reached by subtracting
+`0x800D44` from the `WorldMap` the detour was called on — no global, no second
+hook. Copies are keyed by cell rather than handed out from a ring, so two live
+pointers can never alias however many the renderer keeps.
+
 Details and evidence:
 [`docs/REVERSE_ENGINEERING.md`](docs/REVERSE_ENGINEERING.md).
 
 ## Status
 
-Verified in the running game, on both supported builds:
+Marker reveal is done and proven. Same world, same spot, map opened twice:
 
-- the proxy loads before the entry point and the game runs normally;
-- signature scanning resolves all three functions in the **live mapped image**,
-  not just the file on disk;
-- both detours install, and a startup self-check calls `getCell` back through
-  its trampoline and gets the expected result, so the stolen prologue and the
-  jump back are correct;
-- the game stays up with the hooks in place.
+| | Landmark labels drawn |
+|---|---|
+| RegionReveal loaded | **24** |
+| `dinput8.dll` renamed away | **2** |
 
-A live session with instrumentation showed the reveal firing: 38 625 cells lit
-across the session, roughly 25 per redraw, from a state where the game itself had
-revealed none of them. The player reported seeing dungeon and castle names appear
-while the terrain stayed dark, which is consistent.
+The two survivors are the region the player was standing in and a city they had
+already discovered, so twenty-two are the mod's doing. The terrain is identical
+between the two shots, which is what the design predicts.
 
-**What has still not been done is a side-by-side comparison** — the same place,
-with and without the DLL — so "the mod caused this" rests on counters rather than
-on two screenshots. Tests A through G in [`docs/TESTING.md`](docs/TESTING.md)
-remain unrun, and test G can still falsify the no-write claim.
+Also verified in the running game, on both supported builds: the proxy loads
+before the entry point, signature scanning resolves in the live mapped image, the
+detour's trampoline is exercised by a startup self-check, region tracking follows
+the player across boundaries, and coverage survives a restart and stays separate
+per world. Cost is around 67 cycles per `getCell`, roughly 1% of one core with
+the map open.
 
 ## Known limitations
 
-- **Only the current region is revealed, and it reverts when you leave.** The
-  mod tracks one region and has no memory of where you have been. The intended
-  behaviour is that visited regions stay revealed; that is not built. See
-  [`docs/BEHAVIOUR.md`](docs/BEHAVIOUR.md).
-- **Terrain stays dark.** A cell with no generated 32 x 32 tile image is skipped
-  by the renderer before the reveal bit is read, so markers appear but the map
-  itself does not fill in.
-- **The player's chunk is inferred from `discover(x, y)` calls.** Two of that
-  function's three callers iterate a list, so in multiplayer the tracked chunk
-  may follow something other than the local player. This is the weakest
-  assumption in the mod.
-- **No per-category toggles.** No field distinguishing a city from a dungeon from
-  a boss has been identified in the 52-byte map cell, so `Reveal Cities` /
-  `Reveal Dungeons` / `Reveal Bosses` switches are not implemented rather than
-  faked against a guessed field.
-- **Nothing persists.** The game's save is left exactly as vanilla left it, which
-  is deliberate and stays that way. But the mod keeps no record of its own either,
-  which is *not* deliberate — see the first limitation.
+- **Terrain stays dark.** The map fills in with names, not ground. A cell's
+  terrain is a 32 × 32 image the game generates from a resident 256 × 256 array of
+  block columns and writes into the save; the generator is guarded on that array
+  being present, and it is present only near the player. See
+  [`docs/POI_AND_TERRAIN.md`](docs/POI_AND_TERRAIN.md).
+- **Only four landmark types are actually identified.** Counting the screenshot
+  against the save pinned raw 1 = City, 2 = Mountain, 3 = Forest, 4 = Lake. Past
+  those the name generator's registration order stops matching what the map drew,
+  so the rest reports `adventure?` rather than a name that would read as settled.
+- **Boss is not covered.** The 24-word landmark table has no Boss in it, so
+  whatever represents one on the map is a separate mechanism that has not been
+  investigated. No claim is made either way.
+- **No per-category toggles**, deliberately: three of the four known types are
+  terrain, which is not a useful filter, and the interesting half of the table is
+  unmapped.
 
 ## Licence
 
