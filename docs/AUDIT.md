@@ -13,6 +13,9 @@ CONFIRMED here when an attempt to disprove it failed.
 | "Terrain data does not exist, so terrain reveal is impossible" | **Withdrawn — premature.** Terrain thumbnails exist as their own per-cell records, `tile<x>_<y>`, 32x32. The question is generation cost, not existence. |
 | "`WorldMap+0x90..0x9C` may track the current region" | **Dead lead.** Written only by the constructor, to `-1`, and by nothing else in the translation unit. |
 | "Windows Defender blocks the build" | **Wrong scanner.** Defender's real-time protection is off; McAfee is the active one. |
+| "Qube-Loader could not be found" | **Wrong.** It exists at `qad3n/Qube-Loader`; a failed search was reported as a negative result. Its offsets resolve in our 2013-07-20 build and not the other — see `docs/QUBE_COMPATIBILITY.md`. |
+| "The Classic launcher targets the 2019 release, so it would reject Alpha" | **Wrong for the version that matters.** That was read off `master`. The Alpha ecosystem uses the 2018 **v1.5**, which gates on `fileSize == 3885568` — our 2013-07-20 build exactly — and names it **Alpha 0.1.1**. |
+| "The mod reveals the player's region" | **Incomplete.** It reveals only the *current* region, and previously visited regions revert when the player leaves. That does not meet the requirement; see `docs/BEHAVIOUR.md`. |
 
 ## Confirmed
 
@@ -114,16 +117,19 @@ and determine whether it can run for an arbitrary cell with no player present.
 | Stolen bytes relocation-free | PASS | Instruction-level check, both builds |
 | Signatures unique | PASS | Exactly one match per build |
 | Region == map chunk | PASS | Save keys `reg<x>_<y>`; `32768 >> 6 == 512` |
+| Primary target externally corroborated | PASS | Qube-Loader offsets resolve only in 2013-07-20; launcher v1.5 gates on its exact size |
+| Persistent visited-region memory | **FAIL** | One region tracked, in two atomics; old regions revert on leaving (`docs/BEHAVIOUR.md`) |
+| Never reveals unvisited regions | PASS | The chunk comparison rejects everything outside the tracked region; `otherRegion` counted 128 602 rejections |
 | Map cell identified | PASS | `cube::ZoneTile`, via the constructor's vftable write |
 | A/B proves POI reveal | UNVERIFIED | Counters show 38 625 lit from `lit=0`; no side-by-side comparison made |
 | No persistent save mutation | UNVERIFIED | Design writes nothing and `discovered` stayed 13; `reg` blobs never read back |
-| Current player region authoritative | FAIL | Still inferred from `discover`, whose callers iterate lists |
+| Current player region authoritative | **FAIL** | Still inferred from `discover`. The correct chain is now known (`GameController` at `MapOverlayWidget+0x160`, local `Creature` at `GC+0x8006D0`, position int64 at `+0x10`/`+0x18`) but not wired in |
 | Adjacent region stays hidden | UNVERIFIED | `otherRegion` rises at the boundary — consistent, but never seen on screen |
 | City / dungeon / boss separately | UNKNOWN | No POI type field identified |
 | Terrain reveal understood | PARTIAL | Mechanism identified; generation path not found |
 | Performance acceptable | UNMEASURED | 42 M `getCell` calls observed; a cycle counter was added but the scanner deleted that build before it ran |
 | Extended stability | UNVERIFIED | Longest observed run is two minutes |
-| Loader strategy reviewed | PARTIAL | Proxy audited; Qube-Loader could not be located |
+| Loader strategy reviewed | PASS | Proxy audited; Qube-Loader and launcher v1.5 both analysed; no collision with either |
 | Documentation consistent | PASS | This round rewrote every contradicted claim |
 | Clean reproducible build | PASS | `cmake -B build -A Win32` builds all targets under `/W4 /WX` |
 

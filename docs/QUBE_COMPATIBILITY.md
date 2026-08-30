@@ -1,71 +1,108 @@
-# Loader strategy, and the Qube-Loader question
+# Loader ecosystem
 
-## Qube-Loader could not be found
+An earlier revision of this file said Qube-Loader could not be found and that the
+Classic launcher targets the 2019 release. **Both statements were wrong.** The
+first was a failed search reported as a negative result; the second came from
+reading the launcher's `master` branch instead of the version the Alpha
+ecosystem actually uses. Corrected below.
 
-This was asked for specifically, so the negative result is worth stating
-plainly: **searching did not turn up a project called Qube-Loader**, for Cube
-World Alpha or otherwise. Two searches returned only the same cluster of known
-projects (`ChrisMiuchiz/Cube-World-Mod-Launcher` and its forks,
-`zsennenga/CubeWorld-Mod-API`, `gijsgroenewegen/*`, the ModCatalogue pages).
+## Our build is the one everything targets — CONFIRMED
 
-Nothing was written here about its supported build, expected RVAs, exposed
-structures or API, because none of that could be read. Inventing a compatibility
-assessment for a project that was never opened would be worth less than nothing.
+Three independent lines of evidence, none of which depend on each other:
 
-**If it exists, a link would settle it in one pass.** The comparison worth making
-then is: which Alpha build it targets, whether that is our 2013-07-20 primary,
-whether it already exposes World/Map/Region/Player, and whether the findings in
-`docs/AUDIT.md` — `cube::ZoneTile` as the map cell, the `reg`/`land`/`tile` save
-schema, the reveal bit at `+0x30` — would be useful upstream.
+### 1. Qube-Loader's offsets resolve in our 2013-07-20 build and not the other
 
-## What the loader options actually are
+[`qad3n/Qube-Loader`](https://github.com/qad3n/Qube-Loader) hard-codes absolute
+VAs at `ImageBase 0x400000` in `modloader/src/game/offsets.h`. Checked against
+both installs:
 
-| Option | Contract | Status here |
+| Qube constant | Value | 2013-07-20 | 2013-07-02 |
+|---|---|---|---|
+| `kCreatureVtable` | `0x006FD8CC` | **exactly `cube::Creature`'s vftable**, recovered independently by `tools/cwtool.py rtti` | `0x006FC8CC` — different address |
+| `kDbLoadBlobByKey` | `0x00449810` | `55 8B EC` — function prologue | `06 2B F1` — mid-instruction |
+| `kGetAttackWindupFn` | `0x0043CAA0` | `55 8B EC` — function prologue | `00 00 89` — mid-instruction |
+| `kOperatorNew` | `0x0068D652` | `55 8B EC` — function prologue | `6F 00 FF` — mid-instruction |
+| `kGameControllerVfunc0` | `0x0040CBD0` | `8B 41 04 C3` — a one-line getter | `CA C6 46` — mid-instruction |
+
+The `cube::Creature` row is the strongest: that address was derived here from
+RTTI, with no knowledge of Qube, and lands on the same byte.
+
+### 2. Cube World Mod Launcher v1.5 gates on our exact file size
+
+The Alpha ecosystem uses the 2018
+[`v1.5`](https://github.com/coremaze/Cube-World-Mod-Launcher/releases/tag/v1.5)
+release, which [`Gapagapi1/Cube-World-Alpha-Mods`](https://github.com/Gapagapi1/Cube-World-Alpha-Mods)
+names as the requirement for its client mods. Its `main.cpp` reads:
+
+```cpp
+const int CUBE_SIZE = 3885568;
+if (fileSize != CUBE_SIZE) {
+    printf("Cube World was found, but it is not version 0.1.1. Please update your game.\n");
+```
+
+`3 885 568` is our 2013-07-20 `Cube.exe` to the byte. The 2013-07-02 build
+(3 878 400) would be rejected with "please update your game".
+
+**This also gives the build a name the community uses: Alpha 0.1.1.**
+
+The later tags in that repository (`1.0.0-1_*`, `0.9.1-*`) are for the 2019
+release and are what the earlier revision of this document mistakenly analysed.
+
+### 3. CubeWorld-Reversal describes the same binary
+
+[`qad3n/CubeWorld-Reversal`](https://github.com/qad3n/CubeWorld-Reversal) is a
+Ghidra decompilation of the 2013 Alpha, and reports the recovered PDB path
+`C:\Users\funck\Projects\Cube\OptimizedXP\Cube.pdb`. Both of our `Cube.exe`
+files embed exactly that string, so **this evidence does not discriminate between
+the two builds** — it only confirms the family. Recorded as such rather than
+counted as a third proof.
+
+Its class counts do line up with ours: it reports 55 recovered game classes plus
+roughly 95 `plasma::` engine classes, against the 149 vftable-bearing classes
+`tools/cwtool.py` recovers here.
+
+## What this changes
+
+`docs/TARGET_BUILD.md` chose 2013-07-20 on internal evidence — later timestamp,
+proximity to the 2013-07-23 patch notes. That choice is now externally
+corroborated twice over. **`PRIMARY_TARGET` stands, on much firmer ground.**
+
+Support for 2013-07-02 stays: signature scanning already resolves it, it costs
+nothing, and no ecosystem tool would touch it.
+
+## Coexistence
+
+| Loader | Mechanism | Conflicts with our proxy? |
 |---|---|---|
-| **dinput8 proxy** (current) | The OS loads it through the normal search order because `Cube.exe` imports one function from `dinput8.dll`. No injector, no launcher, one added file. | Working, verified on both builds. |
-| **Classic Cube World Mod Launcher** | Injects, then loads DLLs from `Mods\`, and requires exports `ModMajorVersion`, `ModMinorVersion`, `ModPreInitialize`, `MakeMod`. | **Rejected for Alpha.** Its source gates on `CUBE_VERSION "1.0.0-1"` with CRC32 `0xC7682619` / `0xBA092543`, which is the 2019 release. It would refuse our binaries. |
-| **Own injector** (`RegionRevealLauncher.exe`) | Starts the game suspended, `CreateRemoteThread` + `LoadLibraryW`. | Built and working, but blocked outright by the scanner. Kept only as a fallback. |
+| **Qube-Loader** | `inject.exe` does `CreateRemoteThread` + `LoadLibraryA` of `cube_mod.dll`. Its DirectInput work is a **vtable hook on `IDirectInputDevice8::GetDeviceState` (slot 9)**, not a proxy DLL. | **No.** Qube ships no `dinput8.dll`, so there is no filename collision. Our proxy forwards `DirectInput8Create` to `System32` and Qube hooks the device object that comes back — the two compose. |
+| **Mod Launcher v1.5** | `CreateProcess(CREATE_SUSPENDED)`, then injects `CallbackManager.dll` plus everything in `Mods\`. | **No.** Our DLL is pulled in by the import table when the game resumes; the launcher's injection is independent. RegionReveal does not need the launcher and does not register with it. |
+| **ReShade / ENB** | Commonly install *as* `dinput8.dll`. | **Yes — direct collision.** Only one file can hold that name. This remains the strongest argument for eventually supporting a real loader. |
 
-## Proxy audit
+## Should RegionReveal move onto Qube?
 
-Checked against `Cube.exe`'s import table:
+Not yet, and the reason is not inertia.
 
-- Cube.exe imports exactly **one** function from `dinput8.dll`,
-  `DirectInput8Create`, so a one-export proxy is complete for this consumer.
-- The proxy resolves the real DLL through `GetSystemDirectoryW`, i.e. an absolute
-  path into `System32` (`SysWOW64` for a 32-bit process, which the OS redirects
-  transparently). It never calls `LoadLibraryW("dinput8.dll")` by bare name, so
-  **it cannot load itself recursively**.
-- `proxy_attach()` returns false if either the load or the `GetProcAddress`
-  fails, and `DllMain` then returns `FALSE`, so the game refuses to start rather
-  than running with dead input.
-- `proxy_detach()` releases the handle on `DLL_PROCESS_DETACH`.
+**In favour:** Qube already exposes player, world, creature and camera state, an
+event and hook bus, config/storage services, and a shared ImGui overlay. The
+local-player chain that this project still lacks — `kLocalPlayerPtr 0x0076B1C8`
+to `GameController*`, then `+0x8006D0` to the local `Creature*`, position as
+int64 fixed point at `+0x10`/`+0x18` divided by 65536 — is already solved there,
+and it is exactly what `docs/AUDIT.md` lists as the outstanding FAIL. That chain
+is independently corroborated here: the map renderer reads `GC + 0x8006D0` at
+`0x4C98C4`, and `0x0076B1C8` is a `.data` global with 45 code references.
 
-Known limits, not yet addressed:
+**Against:** Qube is GPL-3.0 and RegionReveal is MIT, so vendoring it would force
+a licence change. It describes itself as an early proof of concept with an
+evolving API. And it needs an injector, which is the thing the scanner on this
+machine rejects outright.
 
-- **Only one export is forwarded.** Anything else in the process that loads
-  `dinput8.dll` and wants `DllCanUnloadNow`, `DllGetClassObject`,
-  `DllRegisterServer` or `DllUnregisterServer` would get a missing export. No
-  such consumer exists in this game, but it makes the proxy non-general.
-- **It collides with any other `dinput8` proxy** — ReShade and ENB commonly take
-  the same slot. Two mods cannot both be `dinput8.dll`. That is the strongest
-  argument for eventually supporting a real loader instead.
+**Recommendation:** keep the core loader-agnostic — `rr::initialize()` and
+`rr::shutdown()` are the entire contract, and nothing under `src/game/` or
+`src/region_reveal/` knows how the DLL arrived. Adding a Qube backend later is a
+new file under `src/loader/`, not a rewrite.
 
-## Architectural consequence
-
-The mod's logic and its loading mechanism should not be entangled, so that a
-future move to another loader is a new file rather than a rewrite. The source is
-already close to that shape:
-
-```
-src/game/          Cube World structures and signature scanning
-src/region_reveal/ the reveal logic and its hooks
-src/hooks.*        the detour primitive
-src/loader/        proxy_dinput8.cpp  <- the only loader-aware file
-src/mod.cpp        DllMain, guarded by REGIONREVEAL_PROXY_DINPUT8
-```
-
-`rr::initialize()` and `rr::shutdown()` are the whole interface a loader needs,
-and nothing under `src/region_reveal/` or `src/game/` knows how the DLL got into
-the process. Adding a second loader means adding a file under `src/loader/` and a
-CMake target — no change to the core.
+**Worth contributing upstream regardless of that decision:** the world-map
+findings in `docs/AUDIT.md` — `cube::ZoneTile` as the map cell, the
+`land`/`reg`/`tile`/`discovered` save schema, the reveal bit at `ZoneTile+0x30`,
+`WorldMap::getCell` at `0x602440` and `WorldMap::discover` at `0x5FC160` — do not
+appear in Qube's `offsets.h`, which has no world-map coverage at all.

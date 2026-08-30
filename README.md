@@ -3,10 +3,11 @@
 Reveals cities, dungeons, bosses and other points of interest when entering a
 region in Cube World Alpha.
 
-> **Experimental.** POI markers are revealed on both supported builds, evidenced
-> by live counters but not yet by a side-by-side comparison. Revealing the
-> region's *terrain* is a separate problem that is understood but unsolved.
-> See [Status](#status) and [`docs/AUDIT.md`](docs/AUDIT.md).
+> **Experimental — incomplete against its own goal.** It reveals POI markers in
+> the region the player is standing in, and only while they stand there: leave,
+> and that region goes dark again. Persistent visited-region memory is not built,
+> and revealing a region's *terrain* is a separate unsolved problem.
+> See [`docs/BEHAVIOUR.md`](docs/BEHAVIOUR.md) and [`docs/AUDIT.md`](docs/AUDIT.md).
 
 ## What it does
 
@@ -21,7 +22,9 @@ returns a copy of the cell with the bit flipped, and only to the map renderer;
 the real cell is never touched, so nothing is persisted and nothing outside the
 map ever sees a different answer.
 
-Neighbouring chunks are unaffected — walk into one and it reveals in turn.
+Neighbouring regions are unaffected — walk into one and it reveals in turn, but
+**the one behind you stops being revealed**. That is the main gap against the
+intended behaviour; see [`docs/BEHAVIOUR.md`](docs/BEHAVIOUR.md).
 
 ## What it does not do
 
@@ -37,6 +40,11 @@ produced yet stays absent.
 
 Both Alpha builds are supported. Functions are located by byte signature at
 startup, so no absolute address is hard-coded.
+
+The 2013-07-20 build is the one the Alpha modding ecosystem targets — the Cube
+World Mod Launcher v1.5 accepts only its exact file size and calls it **Alpha
+0.1.1**, and Qube-Loader's hard-coded offsets resolve in it and not in the
+2013-07-02 build. Details in [`docs/QUBE_COMPATIBILITY.md`](docs/QUBE_COMPATIBILITY.md).
 
 | Build | `Cube.exe` SHA-256 | Size |
 |---|---|---|
