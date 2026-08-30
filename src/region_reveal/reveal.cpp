@@ -3,105 +3,73 @@
 #include <windows.h>
 #include <intrin.h>
 
-#include <atomic>
-#include <cstdio>
 #include <cstring>
 
 #include "../game/cube_world.hpp"
+#include "../game/session.hpp"
 #include "../game/signatures.hpp"
 #include "../hooks.hpp"
 #include "log.hpp"
-
-#ifdef REGIONREVEAL_DIAGNOSTICS
-#define DIAG(expr) (expr)
-#else
-#define DIAG(expr) ((void)0)
-#endif
+#include "visited.hpp"
 
 namespace rr {
 namespace {
 
 InlineHook g_get_cell;
-InlineHook g_discover;
+VisitedRegions g_visited;
+CRITICAL_SECTION g_lock;
+bool g_lock_ready = false;
 
-// Chunk the player was last seen discovering; -1 until the game reports one.
-std::atomic<int> g_region_x{-1};
-std::atomic<int> g_region_y{-1};
+cw::Region g_region;
+DWORD g_checked = 0;
 
 // Bounds of cube::MapOverlayWidget's draw method. Cells are only reported as
-// revealed to callers inside this range, so gameplay code that asks the same
+// revealed to callers inside this range, so gameplay code asking the same
 // question keeps seeing the unmodified map.
 std::uint8_t* g_draw_begin = nullptr;
 std::uint8_t* g_draw_end = nullptr;
+
+// A region spans 64 cells of 256 blocks, so the player cannot cross one in a
+// quarter second. Re-reading the pointer chain per getCell call would cost
+// millions of dereferences per map frame for an answer that cannot have changed.
+constexpr DWORD kRecheckMs = 250;
 
 bool from_map_renderer(const void* return_address) {
     const auto* at = static_cast<const std::uint8_t*>(return_address);
     return at >= g_draw_begin && at < g_draw_end;
 }
 
-#ifdef REGIONREVEAL_DIAGNOSTICS
-// Counts every decision the getCell detour makes, so a log from a real session
-// says which link in the chain breaks rather than leaving it to guesswork.
-struct Counters {
-    unsigned discover;
-    int discover_x, discover_y;
-    unsigned calls;
-    unsigned from_renderer;
-    unsigned null_cell;
-    unsigned other_region;
-    unsigned kind_zero;
-    unsigned already_revealed;
-    unsigned shadowed;
-    int min_x, max_x, min_y, max_y;
-    unsigned long long cycles;      // time spent inside the detour
-    unsigned chunks_seen;           // distinct chunks the renderer asked about
-    int chunk_x[8], chunk_y[8];
-};
-
-Counters g_diag{0, -1, -1, 0, 0, 0, 0, 0, 0, 0, 1 << 30, -(1 << 30), 1 << 30, -(1 << 30), 0, 0, {}, {}};
-
-// Records which chunks the map renderer asks about. If it only ever asks about
-// one, the current region can be read straight off the renderer and the
-// discover hook becomes unnecessary.
-void note_chunk(int cx, int cy) {
-    for (unsigned i = 0; i < g_diag.chunks_seen; ++i) {
-        if (g_diag.chunk_x[i] == cx && g_diag.chunk_y[i] == cy) return;
-    }
-    if (g_diag.chunks_seen < 8) {
-        g_diag.chunk_x[g_diag.chunks_seen] = cx;
-        g_diag.chunk_y[g_diag.chunks_seen] = cy;
-        ++g_diag.chunks_seen;
-    }
-}
-DWORD g_reported = 0;
-
-void report() {
+// Everything here runs on the render thread only, which is what makes the
+// unlocked reads in the detour safe; the lock exists for the shutdown flush.
+void refresh_session(cw::WorldMap* map) {
     const DWORD now = GetTickCount();
-    if (now - g_reported < 4000) return;
-    g_reported = now;
-    log_linef("map draw: calls=%u renderer=%u | null=%u otherRegion=%u kind0=%u lit=%u REVEALED=%u",
-              g_diag.calls, g_diag.from_renderer, g_diag.null_cell, g_diag.other_region,
-              g_diag.kind_zero, g_diag.already_revealed, g_diag.shadowed);
-    log_linef("  renderer asked x=%d..%d y=%d..%d | player chunk=(%d,%d) from %u discover calls, last=(%d,%d)",
-              g_diag.min_x, g_diag.max_x, g_diag.min_y, g_diag.max_y,
-              g_region_x.load(std::memory_order_relaxed), g_region_y.load(std::memory_order_relaxed),
-              g_diag.discover, g_diag.discover_x, g_diag.discover_y);
+    if (now - g_checked < kRecheckMs) return;
+    g_checked = now;
 
-    char chunks[128] = {};
-    int used = 0;
-    for (unsigned i = 0; i < g_diag.chunks_seen && used < 100; ++i) {
-        used += _snprintf_s(chunks + used, sizeof(chunks) - used, _TRUNCATE, "(%d,%d) ",
-                            g_diag.chunk_x[i], g_diag.chunk_y[i]);
+    const std::string world = cw::world_name(map);
+    if (world != g_visited.world()) {
+        EnterCriticalSection(&g_lock);
+        g_visited.open(world);
+        LeaveCriticalSection(&g_lock);
+        g_region = {};
     }
-    const unsigned long long per_call = g_diag.calls ? g_diag.cycles / g_diag.calls : 0;
-    log_linef("  cost: %llu cycles total over %u calls = %llu cycles/call | renderer chunks: %s",
-              g_diag.cycles, g_diag.calls, per_call, chunks);
-}
-#endif
 
-// The renderer reads a cell and uses it immediately, but it holds a couple of
-// them alive at once, so hand out copies from a small per-thread ring instead
-// of a single scratch cell.
+    const cw::Region region = cw::local_player_region(map);
+    if (!region.valid() || region == g_region) return;
+
+    g_region = region;
+    if (g_visited.add(region.x, region.y)) {
+        log_linef("entered region (%d,%d) in world '%s'", region.x, region.y,
+                  g_visited.world().c_str());
+        EnterCriticalSection(&g_lock);
+        g_visited.flush();
+        LeaveCriticalSection(&g_lock);
+    }
+}
+
+// The renderer reads a cell and uses it immediately, but holds a couple alive at
+// once, so hand out copies from a small per-thread ring rather than one scratch
+// cell. The game's own data is never written to.
 cw::MapCell* shadow_of(cw::MapCell* cell) {
     constexpr int kSlots = 16;
     thread_local std::uint8_t ring[kSlots][cw::kCellStride];
@@ -116,56 +84,16 @@ cw::MapCell* shadow_of(cw::MapCell* cell) {
 
 cw::MapCell* __fastcall get_cell_detour(cw::WorldMap* self, void*, int x, int y) {
     const void* caller = _ReturnAddress();
-#ifdef REGIONREVEAL_DIAGNOSTICS
-    const unsigned long long entered = __rdtsc();
-#endif
     cw::MapCell* cell = g_get_cell.original<cw::GetCellFn>()(self, x, y);
-    const bool rendering = from_map_renderer(caller);
+    if (!cell || !from_map_renderer(caller)) return cell;
 
-#ifdef REGIONREVEAL_DIAGNOSTICS
-    ++g_diag.calls;
-    g_diag.cycles += __rdtsc() - entered;
-    if (rendering) {
-        note_chunk(cw::chunk_of(x), cw::chunk_of(y));
-        ++g_diag.from_renderer;
-        if (x < g_diag.min_x) g_diag.min_x = x;
-        if (x > g_diag.max_x) g_diag.max_x = x;
-        if (y < g_diag.min_y) g_diag.min_y = y;
-        if (y > g_diag.max_y) g_diag.max_y = y;
-        if (!cell) ++g_diag.null_cell;
-        report();
-    }
-#endif
+    refresh_session(self);
 
-    if (!cell || !rendering) return cell;
+    if (!g_visited.contains(cw::region_of(x), cw::region_of(y))) return cell;
+    if (*cw::cell_unknown10(cell) == 0) return cell;
+    if (*cw::cell_flags(cell) & cw::kRevealedBit) return cell;
 
-    if (cw::chunk_of(x) != g_region_x.load(std::memory_order_relaxed) ||
-        cw::chunk_of(y) != g_region_y.load(std::memory_order_relaxed)) {
-        DIAG(++g_diag.other_region);
-        return cell;
-    }
-    if (*cw::cell_unknown10(cell) == 0) {
-        DIAG(++g_diag.kind_zero);
-        return cell;
-    }
-    if (*cw::cell_flags(cell) & cw::kRevealedBit) {
-        DIAG(++g_diag.already_revealed);
-        return cell;
-    }
-
-    DIAG(++g_diag.shadowed);
     return shadow_of(cell);
-}
-
-void __fastcall discover_detour(cw::WorldMap* self, void*, int x, int y) {
-#ifdef REGIONREVEAL_DIAGNOSTICS
-    ++g_diag.discover;
-    g_diag.discover_x = x;
-    g_diag.discover_y = y;
-#endif
-    g_region_x.store(cw::chunk_of(x), std::memory_order_relaxed);
-    g_region_y.store(cw::chunk_of(y), std::memory_order_relaxed);
-    g_discover.original<cw::DiscoverFn>()(self, x, y);
 }
 
 // Proves the trampoline executes: getCell rejects a negative coordinate before
@@ -199,9 +127,8 @@ bool initialize() {
     }
 
     std::uint8_t* get_cell = cw::find_unique(text, cw::kSigWorldMapGetCell);
-    std::uint8_t* discover = cw::find_unique(text, cw::kSigWorldMapDiscover);
     std::uint8_t* draw = cw::find_unique(text, cw::kSigMapOverlayDraw);
-    if (!get_cell || !discover || !draw) {
+    if (!get_cell || !draw) {
         log_line("unsupported Cube World Alpha build - no hooks installed");
         return false;
     }
@@ -213,18 +140,16 @@ bool initialize() {
         return false;
     }
 
+    InitializeCriticalSection(&g_lock);
+    g_lock_ready = true;
+
     if (!g_get_cell.install(get_cell, &get_cell_detour)) {
         log_line("failed to hook WorldMap::getCell");
         return false;
     }
     if (!trampoline_works()) {
         g_get_cell.remove();
-        log_line("getCell trampoline did not behave - hooks backed out");
-        return false;
-    }
-    if (!g_discover.install(discover, &discover_detour)) {
-        g_get_cell.remove();
-        log_line("failed to hook WorldMap::discover");
+        log_line("getCell trampoline did not behave - hook backed out");
         return false;
     }
 
@@ -234,8 +159,14 @@ bool initialize() {
 }
 
 void shutdown() {
-    g_discover.remove();
     g_get_cell.remove();
+    if (!g_lock_ready) return;
+
+    EnterCriticalSection(&g_lock);
+    g_visited.flush();
+    LeaveCriticalSection(&g_lock);
+    DeleteCriticalSection(&g_lock);
+    g_lock_ready = false;
 }
 
 }  // namespace rr

@@ -14,11 +14,6 @@ const char kSigWorldMapGetCell[] =
     "7D 5A 81 FF 00 00 01 00 7D 52 8B C6 99 83 E2 3F 8D 0C 02 8B C7 99 83 E2 3F C1 F9 06 "
     "03 C2 C1 F8 06 C1 E1 0A";
 
-const char kSigWorldMapDiscover[] =
-    "55 8B EC 56 57 8B F9 8D B7 C0 00 80 00 56 FF 15 ?? ?? ?? ?? FF 75 0C 8B CF FF 75 08 "
-    "E8 ?? ?? ?? ?? 85 C0 74 14 8A 48 30 F6 C1 01 75 0C 80 C9 01 88 48 30 FF 87 BC 00 80 "
-    "00 56 FF 15 ?? ?? ?? ??";
-
 const char kSigMapOverlayDraw[] =
     "55 8B EC 6A FF 68 ?? ?? ?? ?? 64 A1 00 00 00 00 50 81 EC 88 04 00 00 A1 ?? ?? ?? ?? "
     "33 C5 89 45 F0 53 56 57 50 8D 45 F4 64 A3 00 00 00 00 8B D9 89 9D A0 FC FF FF C7 85 "

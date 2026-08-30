@@ -14,9 +14,11 @@ set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 set(REGIONREVEAL_SOURCES
   src/mod.cpp
   src/hooks.cpp
+  src/game/session.cpp
   src/game/signatures.cpp
   src/region_reveal/log.cpp
   src/region_reveal/reveal.cpp
+  src/region_reveal/visited.cpp
 )
 
 # Preferred loader: Cube.exe imports one function from dinput8.dll and the

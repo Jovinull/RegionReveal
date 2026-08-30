@@ -21,7 +21,6 @@ std::uint8_t* find_unique(const ModuleRange& range, const char* pattern);
 // Signatures were cut from the 2013-07-20 build and verified to match the
 // 2013-07-02 build at a different address; see tools/make_signatures.py.
 extern const char kSigWorldMapGetCell[];
-extern const char kSigWorldMapDiscover[];
 extern const char kSigMapOverlayDraw[];
 
 }  // namespace cw

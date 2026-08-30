@@ -5,7 +5,7 @@
 // we claim to support, and that it is the address recorded in
 // docs/REVERSE_ENGINEERING.md.
 //
-//   signature_test <Cube.exe> <expected getCell RVA> <discover RVA> <draw RVA>
+//   signature_test <Cube.exe> <expected getCell RVA> <draw RVA>
 //
 // RVAs are hex. tests/run_tests.py supplies them for both builds.
 
@@ -72,8 +72,8 @@ void check(const char* name, std::uint8_t* found, std::uint8_t* base, std::uint3
 }  // namespace
 
 int main(int argc, char** argv) {
-    if (argc != 5) {
-        std::fprintf(stderr, "usage: signature_test <Cube.exe> <getCell> <discover> <draw>\n");
+    if (argc != 4) {
+        std::fprintf(stderr, "usage: signature_test <Cube.exe> <getCell> <draw>\n");
         return 2;
     }
 
@@ -89,10 +89,8 @@ int main(int argc, char** argv) {
 
     check("WorldMap::getCell", cw::find_unique(range, cw::kSigWorldMapGetCell), image.data(),
           text_rva, text_off, std::strtoul(argv[2], nullptr, 16));
-    check("WorldMap::discover", cw::find_unique(range, cw::kSigWorldMapDiscover), image.data(),
-          text_rva, text_off, std::strtoul(argv[3], nullptr, 16));
     check("MapOverlayWidget::draw", cw::find_unique(range, cw::kSigMapOverlayDraw), image.data(),
-          text_rva, text_off, std::strtoul(argv[4], nullptr, 16));
+          text_rva, text_off, std::strtoul(argv[3], nullptr, 16));
 
     return failures == 0 ? 0 : 1;
 }

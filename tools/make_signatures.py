@@ -17,7 +17,6 @@ from cwtool import Image
 # Function starts in the 2013-07-20 build, recovered in docs/REVERSE_ENGINEERING.md.
 TARGETS = [
     (0x602440, 'kSigWorldMapGetCell', 'cube::WorldMap::getCell(int,int)'),
-    (0x5FC160, 'kSigWorldMapDiscover', 'cube::WorldMap::discover(int,int)'),
     (0x4C9680, 'kSigMapOverlayDraw', 'cube::MapOverlayWidget virtual slot 1 (draw)'),
 ]
 
