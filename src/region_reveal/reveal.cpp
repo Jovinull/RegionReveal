@@ -9,6 +9,7 @@
 #include <string>
 
 #include "../game/cube_world.hpp"
+#include "../game/landmarks.hpp"
 #include "../game/session.hpp"
 #include "../game/signatures.hpp"
 #include "../hooks.hpp"
@@ -190,6 +191,35 @@ void probe_granularity(cw::WorldMap* map) {
 }
 #endif
 
+// Names what each region of the survey should contribute, so the expected
+// markers are known before anyone opens the map. A region whose storage chunk is
+// not resident says so rather than reporting a landmark it cannot see.
+void log_survey(cw::WorldMap* map, const cw::Region& centre) {
+    for (int dx = -rr::kSurveyRadius; dx <= rr::kSurveyRadius; ++dx) {
+        for (int dy = -rr::kSurveyRadius; dy <= rr::kSurveyRadius; ++dy) {
+            const int rx = centre.x + dx;
+            const int ry = centre.y + dy;
+            if (rx < 0 || ry < 0 || rx >= cw::kRegionDim || ry >= cw::kRegionDim) continue;
+
+            const cw::Landmark found = cw::landmark_at(map, rx, ry);
+            switch (found.status) {
+                case cw::LandmarkLookup::Ok:
+                    log_linef("  survey (%d,%d) raw=%u %s [%s]%s", rx, ry, found.raw,
+                              cw::landmark_name(found.raw),
+                              cw::landmark_kind_name(cw::landmark_kind(found.raw)),
+                              (dx == 0 && dy == 0) ? "  <- centre" : "");
+                    break;
+                case cw::LandmarkLookup::Unreadable:
+                    log_linef("  survey (%d,%d) UNREADABLE", rx, ry);
+                    break;
+                case cw::LandmarkLookup::NoChunk:
+                    log_linef("  survey (%d,%d) NO RECORD (chunk not resident)", rx, ry);
+                    break;
+            }
+        }
+    }
+}
+
 void refresh_session(cw::WorldMap* map) {
     const DWORD now = GetTickCount();
     if (now - g_checked < kRecheckMs) return;
@@ -210,19 +240,16 @@ void refresh_session(cw::WorldMap* map) {
 
     g_region = region;
     g_shadows.reset();
-    if (g_visited.add(region.x, region.y)) {
-        // The region's 0x68 record holds one landmark type at +0x18, which is
-        // what the marker pass draws. Logging it shows what a visited region can
-        // actually contribute - a region whose landmark is terrain has no
-        // dungeon to reveal, however thoroughly the cells are revealed.
-        const cw::Probe p = cw::probe(map);
-        log_linef("entered region (%d,%d) in world '%s'; landmark type=%u",
-                  region.x, region.y, g_visited.world().c_str(),
-                  p.record ? p.field[6] : 0u);
-        EnterCriticalSection(&g_lock);
-        g_visited.flush();
-        LeaveCriticalSection(&g_lock);
-    }
+    if (!g_visited.visit(region.x, region.y)) return;
+
+    log_linef("visited region (%d,%d) in world '%s'; survey radius %d -> %u regions covered",
+              region.x, region.y, g_visited.world().c_str(), rr::kSurveyRadius,
+              static_cast<unsigned>(g_visited.covered()));
+    log_survey(map, region);
+
+    EnterCriticalSection(&g_lock);
+    g_visited.flush();
+    LeaveCriticalSection(&g_lock);
 }
 
 cw::MapCell* __fastcall get_cell_detour(cw::WorldMap* self, void*, int x, int y) {
@@ -244,7 +271,7 @@ cw::MapCell* __fastcall get_cell_detour(cw::WorldMap* self, void*, int x, int y)
 
     refresh_session(self);
 
-    if (!g_visited.contains(cw::region_of(x), cw::region_of(y))) {
+    if (!g_visited.revealed(cw::region_of(x), cw::region_of(y))) {
         DIAG(++g_diag.outside_visited);
         return cell;
     }
