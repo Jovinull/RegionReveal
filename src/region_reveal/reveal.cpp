@@ -5,6 +5,7 @@
 
 #include <climits>
 #include <cstring>
+#include <string>
 
 #include "../game/cube_world.hpp"
 #include "../game/session.hpp"
@@ -81,6 +82,7 @@ void probe_granularity(cw::WorldMap* map) {
     static int lastSubX = INT_MIN, lastSubY = INT_MIN, lastChunkX = INT_MIN, lastChunkY = INT_MIN;
     static unsigned lastField[8] = {};
     static DWORD lastPeriodic = 0;
+    static std::string lastName;
 
     const cw::Probe p = cw::probe(map);
     if (!p.valid) return;
@@ -88,18 +90,22 @@ void probe_granularity(cw::WorldMap* map) {
     const bool moved = p.subX != lastSubX || p.subY != lastSubY ||
                        p.chunkX != lastChunkX || p.chunkY != lastChunkY;
     const bool changed = std::memcmp(lastField, p.field, sizeof(lastField)) != 0;
+    const std::string name = p.landscape + "/" + p.detail;
+    const bool renamed = name != lastName;
     const DWORD now = GetTickCount();
     const bool periodic = now - lastPeriodic >= 10000;
-    if (!moved && !changed && !periodic) return;
+    if (!moved && !changed && !renamed && !periodic) return;
 
     lastSubX = p.subX; lastSubY = p.subY;
     lastChunkX = p.chunkX; lastChunkY = p.chunkY;
     std::memcpy(lastField, p.field, sizeof(lastField));
     lastPeriodic = now;
+    lastName = name;
 
-    log_linef("probe block=(%lld,%lld) cell=(%d,%d) chunk=(%d,%d) sub8=(%d,%d)%s%s",
+    log_linef("probe block=(%lld,%lld) cell=(%d,%d) chunk=(%d,%d) sub8=(%d,%d) name='%s'%s%s%s",
               p.blockX, p.blockY, p.cellX, p.cellY, p.chunkX, p.chunkY, p.subX, p.subY,
-              moved ? "  <-- UNIT CHANGED" : "", changed ? "  <-- RECORD CHANGED" : "");
+              name.c_str(), moved ? "  <-- UNIT CHANGED" : "",
+              changed ? "  <-- RECORD CHANGED" : "", renamed ? "  <== NAME CHANGED" : "");
     if (p.record) {
         log_linef("  record@%p = %08x %08x %08x %08x %08x %08x %08x %08x",
                   p.record, p.field[0], p.field[1], p.field[2], p.field[3],

@@ -72,6 +72,39 @@ Region local_player_region(WorldMap* map) {
     return region.valid() ? region : Region{};
 }
 
+// The HUD shows the current area as two attribute strings, and the game caches
+// the pair in globals so it can notice when they change (0x494355, 0x49436E).
+// Reading them is diagnostic only: whichever coordinate unit changes at the same
+// moment as these strings is the unit the player calls a region.
+constexpr std::uintptr_t kLandscapeName = 0x0076B104;
+constexpr std::uintptr_t kLandscapeDetail = 0x0076B11C;
+
+std::string read_msvc_string(std::uintptr_t at) {
+    auto* text = reinterpret_cast<std::uint8_t*>(at);
+    std::uint32_t size = 0;
+    std::uint32_t capacity = 0;
+    if (!read(text + kStdStringSize, &size) || !read(text + kStdStringCapacity, &capacity)) {
+        return {};
+    }
+    if (size == 0 || size > 128 || size > capacity) return {};
+
+    // The attribute layer stores wide strings, so try that first and fall back.
+    const bool wide = capacity >= kStdStringSsoCapacity ? false : true;
+    const void* chars = text;
+    if (capacity >= kStdStringSsoCapacity && !read(text, &chars)) return {};
+    if (!readable(chars, size * 2)) {
+        if (!readable(chars, size)) return {};
+        return std::string(static_cast<const char*>(chars), size);
+    }
+    (void)wide;
+    const auto* w = static_cast<const wchar_t*>(chars);
+    std::string out;
+    for (std::uint32_t i = 0; i < size && w[i]; ++i) {
+        out.push_back(w[i] < 128 ? static_cast<char>(w[i]) : '?');
+    }
+    return out;
+}
+
 Probe probe(WorldMap* map) {
     Probe out;
     if (!map) return out;
@@ -105,6 +138,8 @@ Probe probe(WorldMap* map) {
 
     out.record = record;
     std::memcpy(out.field, record, sizeof(out.field));
+    out.landscape = read_msvc_string(kLandscapeName);
+    out.detail = read_msvc_string(kLandscapeDetail);
     return out;
 }
 

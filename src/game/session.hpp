@@ -37,6 +37,8 @@ struct Probe {
     int subX = 0, subY = 0;            // 8x8 subdivision of the chunk (cell / 8)
     const void* record = nullptr;      // the 0x68 record covering that subdivision
     unsigned field[8] = {};            // its first dwords, if readable
+    std::string landscape;             // the name the HUD shows for the current area
+    std::string detail;
 };
 
 Probe probe(WorldMap* map);
