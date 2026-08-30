@@ -4,6 +4,7 @@
 #include <intrin.h>
 
 #include <climits>
+#include <cstdio>
 #include <cstring>
 #include <string>
 
@@ -73,6 +74,70 @@ bool from_map_renderer(const void* return_address) {
     return at >= g_draw_begin && at < g_draw_end;
 }
 
+// One copy per cell, never a shared slot.
+//
+// The previous version handed out copies from a small ring, which is only safe
+// while the renderer holds fewer pointers than the ring has slots - a number
+// nobody could derive. Keying on the cell removes the question: a pointer handed
+// out for cell (x,y) is only ever reused for that same cell, so two live
+// pointers can never alias no matter how many the caller keeps.
+//
+// The map draws at most one region's cells, and only cells with content and
+// without the bit get a copy, so the table is sized past the whole 64x64 window
+// the renderer walks. If it ever did fill, shadowing stops rather than evicting
+// something a caller may still hold.
+class ShadowCache {
+public:
+    cw::MapCell* get(cw::MapCell* cell, int x, int y) {
+        const std::size_t start = hash(x, y);
+        for (std::size_t i = 0; i < kSlots; ++i) {
+            Slot& slot = slots_[(start + i) & (kSlots - 1)];
+            if (slot.used && slot.x == x && slot.y == y) {
+                return reinterpret_cast<cw::MapCell*>(slot.bytes);
+            }
+            if (!slot.used) {
+                slot.used = true;
+                slot.x = x;
+                slot.y = y;
+                std::memcpy(slot.bytes, cell, cw::kCellStride);
+                slot.bytes[cw::kCellFlags] |= cw::kRevealedBit;
+                ++live_;
+                return reinterpret_cast<cw::MapCell*>(slot.bytes);
+            }
+        }
+        return nullptr;  // full: hand back the real cell instead of aliasing
+    }
+
+    // Only called when the region or world changes, between draws.
+    void reset() {
+        for (Slot& slot : slots_) slot.used = false;
+        live_ = 0;
+    }
+
+    std::size_t live() const { return live_; }
+
+private:
+    static constexpr std::size_t kSlots = 8192;  // > 64*64 cells in view
+
+    struct Slot {
+        bool used = false;
+        int x = 0;
+        int y = 0;
+        std::uint8_t bytes[cw::kCellStride] = {};
+    };
+
+    static std::size_t hash(int x, int y) {
+        return (static_cast<std::size_t>(x) * 73856093u ^
+                static_cast<std::size_t>(y) * 19349663u) &
+               (kSlots - 1);
+    }
+
+    Slot slots_[kSlots];
+    std::size_t live_ = 0;
+};
+
+ShadowCache g_shadows;
+
 // Everything here runs on the render thread only, which is what makes the
 // unlocked reads in the detour safe; the lock exists for the shutdown flush.
 #ifdef REGIONREVEAL_DIAGNOSTICS
@@ -111,6 +176,17 @@ void probe_granularity(cw::WorldMap* map) {
                   p.record, p.field[0], p.field[1], p.field[2], p.field[3],
                   p.field[4], p.field[5], p.field[6], p.field[7]);
     }
+    char raw[128];
+    int used = 0;
+    for (int i = 0; i < 24; ++i) {
+        used += _snprintf_s(raw + used, sizeof(raw) - used, _TRUNCATE, "%02x", p.nameRaw[i]);
+    }
+    log_linef("  nameGlobal   = %s", raw);
+    used = 0;
+    for (int i = 0; i < 24; ++i) {
+        used += _snprintf_s(raw + used, sizeof(raw) - used, _TRUNCATE, "%02x", p.detailRaw[i]);
+    }
+    log_linef("  detailGlobal = %s", raw);
 }
 #endif
 
@@ -126,12 +202,14 @@ void refresh_session(cw::WorldMap* map) {
         g_visited.open(world);
         LeaveCriticalSection(&g_lock);
         g_region = {};
+        g_shadows.reset();
     }
 
     const cw::Region region = cw::local_player_region(map);
     if (!region.valid() || region == g_region) return;
 
     g_region = region;
+    g_shadows.reset();
     if (g_visited.add(region.x, region.y)) {
         log_linef("entered region (%d,%d) in world '%s'", region.x, region.y,
                   g_visited.world().c_str());
@@ -139,21 +217,6 @@ void refresh_session(cw::WorldMap* map) {
         g_visited.flush();
         LeaveCriticalSection(&g_lock);
     }
-}
-
-// The renderer reads a cell and uses it immediately, but holds a couple alive at
-// once, so hand out copies from a small per-thread ring rather than one scratch
-// cell. The game's own data is never written to.
-cw::MapCell* shadow_of(cw::MapCell* cell) {
-    constexpr int kSlots = 64;
-    thread_local std::uint8_t ring[kSlots][cw::kCellStride];
-    thread_local int next = 0;
-
-    std::uint8_t* slot = ring[next];
-    next = (next + 1) % kSlots;
-    std::memcpy(slot, cell, cw::kCellStride);
-    slot[cw::kCellFlags] |= cw::kRevealedBit;
-    return reinterpret_cast<cw::MapCell*>(slot);
 }
 
 cw::MapCell* __fastcall get_cell_detour(cw::WorldMap* self, void*, int x, int y) {
@@ -202,7 +265,8 @@ cw::MapCell* __fastcall get_cell_detour(cw::WorldMap* self, void*, int x, int y)
     }
 
     DIAG(++g_diag.revealed);
-    return shadow_of(cell);
+    cw::MapCell* shadow = g_shadows.get(cell, x, y);
+    return shadow ? shadow : cell;
 }
 
 // Proves the trampoline executes: getCell rejects a negative coordinate before
