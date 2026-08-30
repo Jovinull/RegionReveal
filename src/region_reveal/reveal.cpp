@@ -246,25 +246,24 @@ cw::MapCell* __fastcall get_cell_detour(cw::WorldMap* self, void*, int x, int y)
         DIAG(++g_diag.already_lit);
         return cell;
     }
-    // Only cells the game itself considers to have content.
+    // Deliberately not filtered on the cell's +0x10 field.
     //
-    // Static reading says the marker pass at 0x4CA4FB tests the reveal bit alone,
-    // so this filter looked unnecessary and was dropped. Reporting every cell of
-    // a region as revealed then crashed the game: 0xC0000409 (stack buffer
-    // overrun, /GS) inside the draw after ~7 minutes and 82 million shadowed
-    // cells, preceded by a RADAR_PRE_LEAK memory-growth event. The build that
-    // kept the filter shadowed 38 625 cells over a comparable session and did
-    // not crash.
+    // That field means "this cell has generated content", and an unexplored cell
+    // has none - so filtering on it left nothing at all to reveal: a live session
+    // logged noContent=334873 against REVEALED=0. The marker pass at 0x4CA4FB
+    // gates only on the reveal bit and takes its icon from the region's own 0x68
+    // record, so a contentless cell can still carry a marker.
     //
-    // The draw has a bounded appetite that this filter was holding it under.
-    // Until that bound is located and respected explicitly, the filter stays:
-    // showing fewer markers is a limitation, crashing is a defect.
-    if (*cw::cell_content(cell) == 0) {
-        DIAG(++g_diag.no_content);
-        return cell;
-    }
-
-    DIAG(++g_diag.revealed);
+    // Removing this filter once before crashed the game (0xC0000409 in the draw)
+    // after 82 million shadowed cells handed out from an aliasing ring. Both of
+    // those changed: shadows are now keyed by cell so they cannot alias, and a
+    // region is 64 cells rather than a 4096-cell storage chunk, so the volume is
+    // roughly three orders of magnitude lower. If it faults again the cause is
+    // semantic rather than lifetime, and the filter comes back for good.
+#ifdef REGIONREVEAL_DIAGNOSTICS
+    if (*cw::cell_content(cell) == 0) ++g_diag.no_content;
+    ++g_diag.revealed;
+#endif
     cw::MapCell* shadow = g_shadows.get(cell, x, y);
     return shadow ? shadow : cell;
 }
