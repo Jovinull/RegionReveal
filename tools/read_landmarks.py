@@ -15,13 +15,15 @@ import sys
 CELLS = 4096 * 14
 RECORD = 44
 
-# Registration order of the name generator, offset by one because the renderer
-# treats 0 as "no landmark". Only 3 has runtime evidence; the rest is ordering.
-NAMES = {0: '-', 1: 'Village', 2: 'Mountain', 3: 'Forest', 4: 'Lake', 5: 'Canyon',
-         6: 'Rock', 7: 'Tree', 8: 'Valley', 9: 'Crater', 10: 'Peak', 11: 'Island',
-         12: 'Ruins', 13: 'Ruins', 14: 'Ruins', 15: 'Ruins', 16: 'Gravesite',
-         17: 'Castle', 18: 'Ruins', 19: 'Catacombs', 20: 'Palace', 21: 'Temple',
-         22: 'Pyramid', 23: 'Cave', 24: 'Portal'}
+# Only values confirmed against a screenshot of the map are named. Everything
+# else prints as UNKNOWN rather than a guess from the name generator's
+# registration order, which stopped matching past the natural landmarks.
+NAMES = {0: 'none [confirmed skipped]', 1: 'City [confirmed]', 2: 'Mountain [confirmed]',
+         3: 'Forest [confirmed]', 4: 'Lake [confirmed]', 10: 'none [confirmed skipped]'}
+
+
+def name_of(raw):
+    return NAMES.get(raw, f'UNKNOWN raw={raw}')
 
 
 def load(path):
@@ -46,7 +48,7 @@ def main():
         for rx in range(cx - radius, cx + radius + 1):
             for ry in range(cy - radius, cy + radius + 1):
                 raw = landmark(blobs, rx, ry)
-                label = 'NO RECORD' if raw is None else f'{raw:3} {NAMES.get(raw, "?")}'
+                label = 'NO RECORD' if raw is None else f'{raw:3} {name_of(raw)}'
                 print(f'  ({rx},{ry})  {label}')
         return
 
@@ -58,7 +60,7 @@ def main():
     total = sum(histogram.values())
     print(f'{total} regions across {len(blobs)} saved chunks')
     for raw, count in sorted(histogram.items()):
-        print(f'  raw {raw:3}  {count:6}  {100 * count / total:5.1f}%  {NAMES.get(raw, "?")}')
+        print(f'  raw {raw:3}  {count:6}  {100 * count / total:5.1f}%  {name_of(raw)}')
 
 
 if __name__ == '__main__':

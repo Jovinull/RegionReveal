@@ -10,18 +10,31 @@ namespace cw {
 // function's registration order, offset by one because the renderer treats 0 as
 // "no landmark" (`test eax, eax / je skip` at 0x4CA54B).
 //
-// STRONG EVIDENCE for the table as a whole; CONFIRMED for 3 = Forest, where a
-// live probe read 3 from the record while the player reported standing in a
-// forest. The rest is inference from registration order and has not been
-// checked against a second observation.
+// Evidence, per value:
 //
-// Ruins appears at several consecutive indices, which most likely means the game
-// draws several ruin variants under one word. That is not established, so the
-// duplicates are listed as they occur rather than merged.
+//   CONFIRMED by counting a screenshot of the map against the same world's save,
+//   over a 30-region survey:
+//     1  two regions held raw 1; the map drew exactly two, both labelled CITY.
+//        The string table's word at that index is "Village", so either the
+//        display word differs from the table word or the index is off by one
+//        somewhere. Named City here because that is what the game printed.
+//     2  three regions, three MOUNTAINS labels.
+//     3  two regions, two FOREST labels - and a live probe read 3 while the
+//        player stood in one, which is the strongest single anchor.
+//     4  one region, one LAKE label.
+//
+//   STRONG EVIDENCE: 0 (the renderer skips it) and 10 (the renderer skips it
+//   explicitly, `cmp eax, 0xA / je`).
+//
+//   UNKNOWN: everything else. Registration order suggests the words below, but
+//   the same screenshot showed six TEMPLE labels where the survey held eleven
+//   raw-14 regions, so the adventure end of the table does not line up and is
+//   not to be trusted. Values 8, 9, 13 and 16+ have never been observed in a
+//   saved world at all.
 inline const char* landmark_name(unsigned raw) {
     switch (raw) {
         case 0: return "none";
-        case 1: return "Village";
+        case 1: return "City";
         case 2: return "Mountain";
         case 3: return "Forest";
         case 4: return "Lake";
@@ -32,16 +45,11 @@ inline const char* landmark_name(unsigned raw) {
         case 9: return "Crater";
         case 10: return "Peak";
         case 11: return "Island";
-        case 12: case 13: case 14: case 15: return "Ruins";
-        case 16: return "Gravesite";
-        case 17: return "Castle";
-        case 18: return "Ruins";
-        case 19: return "Catacombs";
-        case 20: return "Palace";
-        case 21: return "Temple";
-        case 22: return "Pyramid";
-        case 23: return "Cave";
-        case 24: return "Portal";
+        // Below here the registration order stopped matching what the map drew,
+        // so the words are withheld rather than printed as if they were known.
+        case 12: case 13: case 14: case 15: case 16: case 17: case 18:
+        case 19: case 20: case 21: case 22: case 23: case 24:
+            return "adventure?";
         default: return "unmapped";
     }
 }

@@ -232,14 +232,18 @@ void fails_closed() {
 
 void landmark_table() {
     std::printf("landmark table\n");
-    check(std::strcmp(cw::landmark_name(3), "Forest") == 0,
-          "raw 3 is Forest, the one value with runtime evidence");
+    // Only the four values a map screenshot pinned down are named; the rest must
+    // not print a word that looks authoritative.
+    check(std::strcmp(cw::landmark_name(1), "City") == 0, "raw 1 is City, counted 2 for 2");
+    check(std::strcmp(cw::landmark_name(2), "Mountain") == 0, "raw 2 is Mountain, 3 for 3");
+    check(std::strcmp(cw::landmark_name(3), "Forest") == 0, "raw 3 is Forest, 2 for 2 plus a probe");
+    check(std::strcmp(cw::landmark_name(4), "Lake") == 0, "raw 4 is Lake, 1 for 1");
     check(std::strcmp(cw::landmark_name(0), "none") == 0, "raw 0 is no landmark");
-    check(std::strcmp(cw::landmark_name(17), "Castle") == 0, "raw 17 is Castle");
+    check(std::strcmp(cw::landmark_name(14), "adventure?") == 0,
+          "raw 14 does not claim a name: 11 regions held it against 6 temples drawn");
     check(std::strcmp(cw::landmark_name(99), "unmapped") == 0, "an unknown raw says so");
-    check(cw::landmark_kind(1) == cw::LandmarkKind::Settlement, "Village is a settlement");
+    check(cw::landmark_kind(1) == cw::LandmarkKind::Settlement, "City is a settlement");
     check(cw::landmark_kind(3) == cw::LandmarkKind::Natural, "Forest is natural");
-    check(cw::landmark_kind(19) == cw::LandmarkKind::Adventure, "Catacombs is adventure");
 }
 
 }  // namespace
