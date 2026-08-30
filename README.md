@@ -118,18 +118,25 @@ Verified in the running game, on both supported builds:
   jump back are correct;
 - the game stays up with the hooks in place.
 
-**The reveal itself has never been seen.** That needs someone to create a
-character, walk into a region and open the map — tests A through G in
-[`docs/TESTING.md`](docs/TESTING.md), none of which have been run. Everything
-above only shows the plumbing is sound; whether the right cells light up is
-still an open question, and test G can still falsify the no-write claim.
+A live session with instrumentation showed the reveal firing: 38 625 cells lit
+across the session, roughly 25 per redraw, from a state where the game itself had
+revealed none of them. The player reported seeing dungeon and castle names appear
+while the terrain stayed dark, which is consistent.
+
+**What has still not been done is a side-by-side comparison** — the same place,
+with and without the DLL — so "the mod caused this" rests on counters rather than
+on two screenshots. Tests A through G in [`docs/TESTING.md`](docs/TESTING.md)
+remain unrun, and test G can still falsify the no-write claim.
 
 ## Known limitations
 
-- **Region granularity is the map chunk, not `cube::Region`.** A chunk is 64 × 64
-  map cells and is a confirmed structure of the map itself. Whether it lines up
-  with what the game calls a region is an untested hypothesis
-  (`docs/REVERSE_ENGINEERING.md`, "Regions").
+- **Only the current region is revealed, and it reverts when you leave.** The
+  mod tracks one region and has no memory of where you have been. The intended
+  behaviour is that visited regions stay revealed; that is not built. See
+  [`docs/BEHAVIOUR.md`](docs/BEHAVIOUR.md).
+- **Terrain stays dark.** A cell with no generated 32 x 32 tile image is skipped
+  by the renderer before the reveal bit is read, so markers appear but the map
+  itself does not fill in.
 - **The player's chunk is inferred from `discover(x, y)` calls.** Two of that
   function's three callers iterate a list, so in multiplayer the tracked chunk
   may follow something other than the local player. This is the weakest
@@ -138,9 +145,9 @@ still an open question, and test G can still falsify the no-write claim.
   a boss has been identified in the 52-byte map cell, so `Reveal Cities` /
   `Reveal Dungeons` / `Reveal Bosses` switches are not implemented rather than
   faked against a guessed field.
-- **Nothing persists.** Leave the region and its unexplored cells go dark again;
-  quit and the save is exactly as the vanilla game left it. That is the intended
-  design, but it is worth knowing it is not "permanent discovery".
+- **Nothing persists.** The game's save is left exactly as vanilla left it, which
+  is deliberate and stays that way. But the mod keeps no record of its own either,
+  which is *not* deliberate — see the first limitation.
 
 ## Licence
 
