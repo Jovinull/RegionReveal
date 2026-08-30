@@ -34,6 +34,37 @@ std::uint8_t* g_draw_end = nullptr;
 // millions of dereferences per map frame for an answer that cannot have changed.
 constexpr DWORD kRecheckMs = 250;
 
+#ifdef REGIONREVEAL_DIAGNOSTICS
+// Counts what the detour decided, so one play session can settle the A/B and the
+// cost question at once instead of needing a run each.
+struct Counters {
+    unsigned calls;
+    unsigned rendering;
+    unsigned outside_visited;
+    unsigned already_lit;
+    unsigned revealed;
+    unsigned long long cycles;
+};
+Counters g_diag{};
+DWORD g_reported = 0;
+
+void report() {
+    const DWORD now = GetTickCount();
+    if (now - g_reported < 5000) return;
+    g_reported = now;
+    const unsigned long long per_call = g_diag.calls ? g_diag.cycles / g_diag.calls : 0;
+    log_linef("map draw: calls=%u rendering=%u | outsideVisited=%u alreadyLit=%u REVEALED=%u",
+              g_diag.calls, g_diag.rendering, g_diag.outside_visited, g_diag.already_lit,
+              g_diag.revealed);
+    log_linef("  cost=%llu cycles over %u calls = %llu/call | region=(%d,%d) world='%s'",
+              g_diag.cycles, g_diag.calls, per_call, g_region.x, g_region.y,
+              g_visited.world().c_str());
+}
+#define DIAG(expr) (expr)
+#else
+#define DIAG(expr) ((void)0)
+#endif
+
 bool from_map_renderer(const void* return_address) {
     const auto* at = static_cast<const std::uint8_t*>(return_address);
     return at >= g_draw_begin && at < g_draw_end;
@@ -84,13 +115,32 @@ cw::MapCell* shadow_of(cw::MapCell* cell) {
 
 cw::MapCell* __fastcall get_cell_detour(cw::WorldMap* self, void*, int x, int y) {
     const void* caller = _ReturnAddress();
+#ifdef REGIONREVEAL_DIAGNOSTICS
+    const unsigned long long entered = __rdtsc();
+#endif
     cw::MapCell* cell = g_get_cell.original<cw::GetCellFn>()(self, x, y);
-    if (!cell || !from_map_renderer(caller)) return cell;
+    const bool rendering = from_map_renderer(caller);
+#ifdef REGIONREVEAL_DIAGNOSTICS
+    ++g_diag.calls;
+    g_diag.cycles += __rdtsc() - entered;
+    if (rendering) {
+        ++g_diag.rendering;
+        report();
+    }
+#endif
+    if (!cell || !rendering) return cell;
 
     refresh_session(self);
 
-    if (!g_visited.contains(cw::region_of(x), cw::region_of(y))) return cell;
-    if (*cw::cell_flags(cell) & cw::kRevealedBit) return cell;
+    if (!g_visited.contains(cw::region_of(x), cw::region_of(y))) {
+        DIAG(++g_diag.outside_visited);
+        return cell;
+    }
+    if (*cw::cell_flags(cell) & cw::kRevealedBit) {
+        DIAG(++g_diag.already_lit);
+        return cell;
+    }
+    DIAG(++g_diag.revealed);
 
     // Deliberately not filtered on the cell's +0x10 field. The draw method makes
     // two passes: the terrain pass at 0x4C9831 needs both +0x10 and the reveal
