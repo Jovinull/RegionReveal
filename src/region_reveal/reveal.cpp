@@ -4,6 +4,7 @@
 #include <intrin.h>
 
 #include <atomic>
+#include <cstdio>
 #include <cstring>
 
 #include "../game/cube_world.hpp"
@@ -52,9 +53,26 @@ struct Counters {
     unsigned already_revealed;
     unsigned shadowed;
     int min_x, max_x, min_y, max_y;
+    unsigned long long cycles;      // time spent inside the detour
+    unsigned chunks_seen;           // distinct chunks the renderer asked about
+    int chunk_x[8], chunk_y[8];
 };
 
-Counters g_diag{0, -1, -1, 0, 0, 0, 0, 0, 0, 0, 1 << 30, -(1 << 30), 1 << 30, -(1 << 30)};
+Counters g_diag{0, -1, -1, 0, 0, 0, 0, 0, 0, 0, 1 << 30, -(1 << 30), 1 << 30, -(1 << 30), 0, 0, {}, {}};
+
+// Records which chunks the map renderer asks about. If it only ever asks about
+// one, the current region can be read straight off the renderer and the
+// discover hook becomes unnecessary.
+void note_chunk(int cx, int cy) {
+    for (unsigned i = 0; i < g_diag.chunks_seen; ++i) {
+        if (g_diag.chunk_x[i] == cx && g_diag.chunk_y[i] == cy) return;
+    }
+    if (g_diag.chunks_seen < 8) {
+        g_diag.chunk_x[g_diag.chunks_seen] = cx;
+        g_diag.chunk_y[g_diag.chunks_seen] = cy;
+        ++g_diag.chunks_seen;
+    }
+}
 DWORD g_reported = 0;
 
 void report() {
@@ -68,6 +86,16 @@ void report() {
               g_diag.min_x, g_diag.max_x, g_diag.min_y, g_diag.max_y,
               g_region_x.load(std::memory_order_relaxed), g_region_y.load(std::memory_order_relaxed),
               g_diag.discover, g_diag.discover_x, g_diag.discover_y);
+
+    char chunks[128] = {};
+    int used = 0;
+    for (unsigned i = 0; i < g_diag.chunks_seen && used < 100; ++i) {
+        used += _snprintf_s(chunks + used, sizeof(chunks) - used, _TRUNCATE, "(%d,%d) ",
+                            g_diag.chunk_x[i], g_diag.chunk_y[i]);
+    }
+    const unsigned long long per_call = g_diag.calls ? g_diag.cycles / g_diag.calls : 0;
+    log_linef("  cost: %llu cycles total over %u calls = %llu cycles/call | renderer chunks: %s",
+              g_diag.cycles, g_diag.calls, per_call, chunks);
 }
 #endif
 
@@ -88,12 +116,17 @@ cw::MapCell* shadow_of(cw::MapCell* cell) {
 
 cw::MapCell* __fastcall get_cell_detour(cw::WorldMap* self, void*, int x, int y) {
     const void* caller = _ReturnAddress();
+#ifdef REGIONREVEAL_DIAGNOSTICS
+    const unsigned long long entered = __rdtsc();
+#endif
     cw::MapCell* cell = g_get_cell.original<cw::GetCellFn>()(self, x, y);
     const bool rendering = from_map_renderer(caller);
 
 #ifdef REGIONREVEAL_DIAGNOSTICS
     ++g_diag.calls;
+    g_diag.cycles += __rdtsc() - entered;
     if (rendering) {
+        note_chunk(cw::chunk_of(x), cw::chunk_of(y));
         ++g_diag.from_renderer;
         if (x < g_diag.min_x) g_diag.min_x = x;
         if (x > g_diag.max_x) g_diag.max_x = x;
@@ -111,7 +144,7 @@ cw::MapCell* __fastcall get_cell_detour(cw::WorldMap* self, void*, int x, int y)
         DIAG(++g_diag.other_region);
         return cell;
     }
-    if (*cw::cell_kind(cell) == 0) {
+    if (*cw::cell_unknown10(cell) == 0) {
         DIAG(++g_diag.kind_zero);
         return cell;
     }

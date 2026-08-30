@@ -12,17 +12,19 @@
 namespace cw {
 
 // cube::WorldMap owns a sparse 1024x1024 grid of chunk pointers at +0xB0.
-// Each chunk covers 64x64 map cells of 0x34 bytes, starting 8 bytes into it.
+// A chunk is one region: 64x64 cells of 0x34 bytes at offset 0, followed by
+// 64 objects of 0x68. The save file calls these chunks "reg<x>_<y>", which is
+// where the claim that a chunk is a region comes from.
 inline constexpr int kGridOffset = 0xB0;
 inline constexpr int kGridDim = 1024;
 inline constexpr int kChunkDim = 64;
-inline constexpr int kChunkHeader = 8;
 inline constexpr int kCellStride = 0x34;
 inline constexpr int kMapDim = kGridDim * kChunkDim;  // 65536 cells per axis
 
-// Offsets inside a map cell.
-inline constexpr int kCellKind = 0x10;   // zero for cells the renderer skips
-inline constexpr int kCellFlags = 0x30;  // bit 0 = revealed on the world map
+// Offsets inside a map cell. The cell is cube::ZoneTile: its constructor
+// writes that class's RTTI vftable.
+inline constexpr int kCellUnknown10 = 0x10;  // zero for cells the renderer skips
+inline constexpr int kCellFlags = 0x30;      // bit 0 = revealed on the world map
 inline constexpr std::uint8_t kRevealedBit = 0x01;
 
 // Offsets inside cube::WorldMap.
@@ -42,8 +44,8 @@ inline std::uint8_t* cell_flags(MapCell* cell) {
     return reinterpret_cast<std::uint8_t*>(cell) + kCellFlags;
 }
 
-inline std::uint8_t* cell_kind(MapCell* cell) {
-    return reinterpret_cast<std::uint8_t*>(cell) + kCellKind;
+inline std::uint8_t* cell_unknown10(MapCell* cell) {
+    return reinterpret_cast<std::uint8_t*>(cell) + kCellUnknown10;
 }
 
 inline void** chunk_grid(WorldMap* map) {
@@ -55,8 +57,11 @@ inline void* chunk_at(WorldMap* map, int cx, int cy) {
     return chunk_grid(map)[cx * kGridDim + cy];
 }
 
+// Mirrors cube::WorldMap::getCell: the cell array starts at the chunk itself,
+// with no header. An earlier version of this file assumed 8 bytes of header,
+// which was wrong; getCell computes chunk + index * 0x34.
 inline MapCell* cell_in_chunk(void* chunk, int ix, int iy) {
-    auto* base = static_cast<std::uint8_t*>(chunk) + kChunkHeader;
+    auto* base = static_cast<std::uint8_t*>(chunk);
     return reinterpret_cast<MapCell*>(base + (ix * kChunkDim + iy) * kCellStride);
 }
 
