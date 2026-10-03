@@ -22,5 +22,12 @@ std::uint8_t* find_unique(const ModuleRange& range, const char* pattern);
 // 2013-07-02 build at a different address; see tools/make_signatures.py.
 extern const char kSigWorldMapGetCell[];
 extern const char kSigMapOverlayDraw[];
+extern const char kSigWorldAreaAt[];
+extern const char kSigWorldTerrainHeight[];
+extern const char kSigVoxelImageCtor[];
+extern const char kSigVoxelImageResize[];
+extern const char kSigVoxelImageBuild[];
+extern const char kSigDotListPushBack[];
+extern const char kSigListClear[];
 
 }  // namespace cw

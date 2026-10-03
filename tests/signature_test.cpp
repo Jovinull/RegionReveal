@@ -5,9 +5,10 @@
 // we claim to support, and that it is the address recorded in
 // docs/REVERSE_ENGINEERING.md.
 //
-//   signature_test <Cube.exe> <expected getCell RVA> <draw RVA>
+//   signature_test <Cube.exe> <RVA> ...
 //
-// RVAs are hex. tests/run_tests.py supplies them for both builds.
+// One hex RVA per signature, in the order of kSignatures below.
+// tests/run_tests.py supplies them for both builds.
 
 #include <windows.h>
 
@@ -69,11 +70,29 @@ void check(const char* name, std::uint8_t* found, std::uint8_t* base, std::uint3
     std::printf("  ok   %-22s RVA 0x%06X\n", name, rva);
 }
 
+struct Signature {
+    const char* name;
+    const char* pattern;
+};
+
+const Signature kSignatures[] = {
+    {"WorldMap::getCell", cw::kSigWorldMapGetCell},
+    {"MapOverlayWidget::draw", cw::kSigMapOverlayDraw},
+    {"World area lookup", cw::kSigWorldAreaAt},
+    {"World terrain height", cw::kSigWorldTerrainHeight},
+    {"tile image ctor", cw::kSigVoxelImageCtor},
+    {"tile image resize", cw::kSigVoxelImageResize},
+    {"tile image build", cw::kSigVoxelImageBuild},
+    {"border dot push_back", cw::kSigDotListPushBack},
+    {"std::list clear", cw::kSigListClear},
+};
+constexpr int kCount = static_cast<int>(sizeof(kSignatures) / sizeof(kSignatures[0]));
+
 }  // namespace
 
 int main(int argc, char** argv) {
-    if (argc != 4) {
-        std::fprintf(stderr, "usage: signature_test <Cube.exe> <getCell> <draw>\n");
+    if (argc != 2 + kCount) {
+        std::fprintf(stderr, "usage: signature_test <Cube.exe> <%d RVAs>\n", kCount);
         return 2;
     }
 
@@ -87,10 +106,10 @@ int main(int argc, char** argv) {
     cw::ModuleRange range{image.data() + text_off, image.data() + text_off + text_size};
     std::printf("%s\n", argv[1]);
 
-    check("WorldMap::getCell", cw::find_unique(range, cw::kSigWorldMapGetCell), image.data(),
-          text_rva, text_off, std::strtoul(argv[2], nullptr, 16));
-    check("MapOverlayWidget::draw", cw::find_unique(range, cw::kSigMapOverlayDraw), image.data(),
-          text_rva, text_off, std::strtoul(argv[3], nullptr, 16));
+    for (int i = 0; i < kCount; ++i) {
+        check(kSignatures[i].name, cw::find_unique(range, kSignatures[i].pattern), image.data(), text_rva,
+              text_off, std::strtoul(argv[2 + i], nullptr, 16));
+    }
 
     return failures == 0 ? 0 : 1;
 }

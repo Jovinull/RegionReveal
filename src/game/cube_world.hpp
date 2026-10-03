@@ -37,9 +37,49 @@ inline constexpr int kRegionDim = kMapDim / kRegionCells;  // 8192 regions per a
 
 // Offsets inside a map cell. The cell is cube::ZoneTile: its constructor
 // writes that class's RTTI vftable.
-inline constexpr int kCellContent = 0x10;  // non-zero for cells the terrain pass draws
-inline constexpr int kCellFlags = 0x30;    // bit 0 = revealed on the world map
+//
+// +0x10..0x1F is the cell's point of interest, copied from the world generator:
+// a type byte the label pass tests and draws (1 = city, drawn white) and a level
+// at +0x18 it colours against the player's. It is not terrain - the terrain is
+// the tile image at +0x08, drawn by WorldMap::render whether or not the reveal
+// bit is set; that bit only tints the placeholder drawn where no tile exists.
+inline constexpr int kCellTileBase = 0x04;    // tile's lowest voxel layer, in 8-block units
+inline constexpr int kCellTile = 0x08;        // tile image, or null
+inline constexpr int kCellContent = 0x10;     // point-of-interest type, 0 = none
+inline constexpr int kCellBorderDots = 0x20;  // std::list of {x, y, z} area-border dots
+inline constexpr int kCellTileFade = 0x2C;    // fade-in countdown, 250 when a tile appears
+inline constexpr int kCellFlags = 0x30;       // bit 0 = revealed on the world map
 inline constexpr std::uint8_t kRevealedBit = 0x01;
+inline constexpr std::uint8_t kSavedTileBit = 0x02;  // a tile record exists in the save
+inline constexpr int kTileFadeStart = 250;
+
+// The tile image the map draws for a cell: a 32 x 32 x depth grid of voxels,
+// each the average colour of an 8 x 8 x 8 block cube. RGB, three bytes a voxel
+// at ((z * h + y) * w + x) * 3, with black meaning empty. The map scales voxels
+// by a fixed 8 blocks, so a cell always needs the full 32 x 32.
+inline constexpr int kTileImageSize = 0x60;
+inline constexpr int kTileImageVoxels = 0x30;
+inline constexpr int kTileDim = 32;
+inline constexpr int kBlocksPerVoxel = 8;
+
+// Offsets inside cube::WorldMap beyond the cell grid.
+inline constexpr int kWorldMapRenderer = 0xA4;  // ctor arg 1, handed to every tile image
+inline constexpr int kWorldMapWorld = 0xAC;     // cube::World*, ctor arg 2
+inline constexpr int kWorldMapCellLock = 0x8000D8;
+
+// WorldMap::render draws cells within kMapTileRadius of the view centre - the
+// map overlay passes it as a literal, push 0x10 - but the map data worker frees
+// every tile further than kMapTileKeep from that centre once a second
+// (0x5FBED0, cmp eax, 0xA). So terrain shows within 10 cells, placeholders from
+// there to 16, and coarse per-chunk landscape beyond.
+inline constexpr int kMapTileRadius = 16;
+inline constexpr int kMapTileKeep = 10;
+
+// A named area - "Lands of Asmi", "Damarok Ocean" - as cube::World's area lookup
+// returns it: the nearest of one centre per storage chunk, after warping the
+// position with noise. The map's dotted lines are the borders between areas.
+inline constexpr int kAreaSeed = 0x14;  // name seed; distinct per area and stable
+inline constexpr int kAreaKind = 0x18;  // negative for ocean, named "... Ocean"
 
 // Offsets inside cube::WorldMap.
 inline constexpr int kWorldMapLock = 0x8000C0;         // CRITICAL_SECTION
@@ -52,6 +92,12 @@ inline constexpr int kWorldMapOwnerInfo = 0xAC;        // ctor arg 2; carries th
 // a WorldMap to that owner without touching any global.
 inline constexpr int kOwnerToWorldMap = 0x800D44;
 inline constexpr int kOwnerToLocalPlayer = 0x8006D0;  // -> cube::Creature*
+
+// Where the map is looking: a cell the game updates every frame plus the
+// player's pan in blocks. The map data worker reads the same pair the same way,
+// pan / 256 added to the cell, to decide which tiles to load.
+inline constexpr int kOwnerViewCell = 0x2BC;      // int x, int y
+inline constexpr int kOwnerViewPan = 0x1000E4C;   // float x, float y, in blocks
 
 // cube::Creature. Position is 64-bit fixed point with 16 fractional bits.
 inline constexpr int kPlayerPosX = 0x10;
