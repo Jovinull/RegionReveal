@@ -14,20 +14,21 @@ namespace {
 
 constexpr char kMagic[4] = {'R', 'R', 'V', 'S'};
 
-// Version 2 stores visited centres. Version 1 keyed on the 64x64-cell storage
-// chunk, which is not what the game calls a region, so those files describe the
-// wrong thing and are rejected rather than converted. The survey radius is not
-// part of the format: coverage is derived, so changing the radius does not
-// invalidate a file.
-constexpr std::uint32_t kVersion = 2;
+// Version 3 stores visited cells, one per named area entered. Version 2 stored
+// the centres of 8 x 8-cell gameplay regions; each converts to the cell at its
+// middle, which lies inside the area the player was in, so no history is lost.
+// Version 1 keyed on 64 x 64-cell storage chunks, which described the wrong
+// thing, and is still rejected rather than converted.
+constexpr std::uint32_t kVersion = 3;
+constexpr std::uint32_t kVersionRegions = 2;
 constexpr std::uint32_t kMaxWorldName = 64;
-constexpr std::uint32_t kMaxCentres = 1u << 20;
+constexpr std::uint32_t kMaxCells = 1u << 20;
 
 #pragma pack(push, 1)
 struct Header {
     char magic[4];
     std::uint32_t version;
-    std::uint32_t regionDim;
+    std::uint32_t dim;  // cells per axis for v3, regions per axis for v2
     std::uint32_t count;
     std::uint32_t worldLength;
 };
@@ -60,85 +61,29 @@ std::wstring beside_game(const std::string& world, const wchar_t* suffix) {
     return out;
 }
 
-std::size_t round_up_pow2(std::size_t n) {
-    std::size_t size = 16;
-    while (size < n) size <<= 1;
-    return size;
-}
-
 }  // namespace
 
-std::uint32_t region_key(int x, int y) {
+std::uint32_t cell_key(int x, int y) {
     return (static_cast<std::uint32_t>(x) << 16) | static_cast<std::uint32_t>(y);
 }
 
-void RegionSet::reset(std::size_t expected) {
-    // Kept at most half full so linear probing stays short.
-    slots_.assign(round_up_pow2(expected * 2 + 16), kEmpty);
-    mask_ = slots_.size() - 1;
-    count_ = 0;
-}
-
-void RegionSet::grow() {
-    std::vector<std::uint32_t> old;
-    old.swap(slots_);
-    slots_.assign(old.empty() ? 32 : old.size() * 2, kEmpty);
-    mask_ = slots_.size() - 1;
-    count_ = 0;
-    for (const std::uint32_t key : old) {
-        if (key != kEmpty) insert(key);
-    }
-}
-
-void RegionSet::insert(std::uint32_t key) {
-    if (key == kEmpty) return;
-    // Kept under half full: probing stays short, and an insert can never be
-    // dropped because the table happened to be sized for a smaller set.
-    if (slots_.empty() || (count_ + 1) * 2 >= slots_.size()) grow();
-
-    std::size_t at = key & mask_;
-    for (std::size_t i = 0; i <= mask_; ++i) {
-        if (slots_[at] == key) return;
-        if (slots_[at] == kEmpty) {
-            slots_[at] = key;
-            ++count_;
-            return;
-        }
-        at = (at + 1) & mask_;
-    }
-}
-
-bool RegionSet::contains(std::uint32_t key) const {
-    if (slots_.empty()) return false;
-    std::size_t at = key & mask_;
-    for (std::size_t i = 0; i <= mask_; ++i) {
-        if (slots_[at] == key) return true;
-        if (slots_[at] == kEmpty) return false;
-        at = (at + 1) & mask_;
-    }
-    return false;
-}
-
-void VisitedRegions::open(const std::string& world) {
+void VisitedAreas::open(const std::string& world) {
     if (world == world_) return;
 
     flush();
     world_.clear();
-    centres_.clear();
-    revealed_.reset(0);
+    cells_.clear();
     dirty_ = false;
 
     if (!usable_world_name(world)) return;
 
     world_ = world;
     const bool loaded = load();
-    rebuild();
-    log_linef("visited: %u centres, %u regions covered, world '%s'%s",
-              static_cast<unsigned>(centres_.size()), static_cast<unsigned>(revealed_.size()),
+    log_linef("visited: %u areas recorded, world '%s'%s", static_cast<unsigned>(cells_.size()),
               world_.c_str(), loaded ? "" : " (no usable file; starting empty)");
 }
 
-bool VisitedRegions::load() {
+bool VisitedAreas::load() {
     const std::wstring path = beside_game(world_, L".visited");
     if (path.empty()) return false;
 
@@ -148,70 +93,57 @@ bool VisitedRegions::load() {
     bool ok = false;
     Header header{};
     std::string stored;
-    if (std::fread(&header, sizeof(header), 1, file) == 1 &&
-        std::memcmp(header.magic, kMagic, sizeof(kMagic)) == 0 && header.version == kVersion &&
-        header.regionDim == cw::kRegionDim && header.count <= kMaxCentres &&
-        header.worldLength > 0 && header.worldLength <= kMaxWorldName) {
+    std::vector<std::uint32_t> keys;
+    const bool v3 = std::fread(&header, sizeof(header), 1, file) == 1 &&
+                    std::memcmp(header.magic, kMagic, sizeof(kMagic)) == 0 &&
+                    header.version == kVersion && header.dim == cw::kMapDim;
+    const bool v2 = !v3 && std::memcmp(header.magic, kMagic, sizeof(kMagic)) == 0 &&
+                    header.version == kVersionRegions && header.dim == cw::kRegionDim;
+    if ((v3 || v2) && header.count <= kMaxCells && header.worldLength > 0 &&
+        header.worldLength <= kMaxWorldName) {
         stored.resize(header.worldLength);
         if (std::fread(&stored[0], 1, header.worldLength, file) == header.worldLength &&
             stored == world_) {
-            centres_.resize(header.count);
+            keys.resize(header.count);
             ok = header.count == 0 ||
-                 std::fread(centres_.data(), sizeof(std::uint32_t), header.count, file) ==
-                     header.count;
+                 std::fread(keys.data(), sizeof(std::uint32_t), header.count, file) == header.count;
             // Unsorted content would break the lookup, so it counts as damaged
             // rather than something to repair.
-            if (ok && !std::is_sorted(centres_.begin(), centres_.end())) ok = false;
+            if (ok && !std::is_sorted(keys.begin(), keys.end())) ok = false;
         }
     }
     std::fclose(file);
+    if (!ok) return false;
 
-    if (!ok) centres_.clear();
-    return ok;
-}
-
-void VisitedRegions::survey(int x, int y) {
-    for (int dx = -kSurveyRadius; dx <= kSurveyRadius; ++dx) {
-        for (int dy = -kSurveyRadius; dy <= kSurveyRadius; ++dy) {
-            const int rx = x + dx;
-            const int ry = y + dy;
-            // Clamped rather than wrapped: a region near an edge surveys a
-            // smaller area instead of reaching around the world.
-            if (rx < 0 || ry < 0 || rx >= cw::kRegionDim || ry >= cw::kRegionDim) continue;
-            revealed_.insert(region_key(rx, ry));
+    if (v2) {
+        // A v2 key is a region; the cell in its middle is where the player was.
+        for (std::uint32_t& key : keys) {
+            key = cell_key(key_x(key) * cw::kRegionCells + cw::kRegionCells / 2,
+                           key_y(key) * cw::kRegionCells + cw::kRegionCells / 2);
         }
+        std::sort(keys.begin(), keys.end());
+        dirty_ = true;  // rewrite as v3 at the next flush
+        log_linef("visited: converted %u version 2 regions", static_cast<unsigned>(keys.size()));
     }
+    cells_.swap(keys);
+    return true;
 }
 
-void VisitedRegions::rebuild() {
-    const int span = kSurveyRadius * 2 + 1;
-    revealed_.reset(centres_.size() * static_cast<std::size_t>(span) * span);
-    for (const std::uint32_t key : centres_) {
-        survey(static_cast<int>(key >> 16), static_cast<int>(key & 0xFFFF));
-    }
-}
-
-bool VisitedRegions::revealed(int x, int y) const {
-    if (x < 0 || y < 0 || x >= cw::kRegionDim || y >= cw::kRegionDim) return false;
-    return revealed_.contains(region_key(x, y));
-}
-
-bool VisitedRegions::visit(int x, int y) {
+bool VisitedAreas::add(int x, int y) {
     if (world_.empty()) return false;
-    if (x < 0 || y < 0 || x >= cw::kRegionDim || y >= cw::kRegionDim) return false;
-    if (centres_.size() >= kMaxCentres) return false;
+    if (x < 0 || y < 0 || x >= cw::kMapDim || y >= cw::kMapDim) return false;
+    if (cells_.size() >= kMaxCells) return false;
 
-    const std::uint32_t key = region_key(x, y);
-    const auto at = std::lower_bound(centres_.begin(), centres_.end(), key);
-    if (at != centres_.end() && *at == key) return false;
+    const std::uint32_t key = cell_key(x, y);
+    const auto at = std::lower_bound(cells_.begin(), cells_.end(), key);
+    if (at != cells_.end() && *at == key) return false;
 
-    centres_.insert(at, key);
-    survey(x, y);
+    cells_.insert(at, key);
     dirty_ = true;
     return true;
 }
 
-void VisitedRegions::flush() {
+void VisitedAreas::flush() {
     if (!dirty_ || world_.empty()) return;
 
     const std::wstring path = beside_game(world_, L".visited");
@@ -224,23 +156,22 @@ void VisitedRegions::flush() {
     Header header{};
     std::memcpy(header.magic, kMagic, sizeof(kMagic));
     header.version = kVersion;
-    header.regionDim = cw::kRegionDim;
-    header.count = static_cast<std::uint32_t>(centres_.size());
+    header.dim = cw::kMapDim;
+    header.count = static_cast<std::uint32_t>(cells_.size());
     header.worldLength = static_cast<std::uint32_t>(world_.size());
 
     const bool written =
         std::fwrite(&header, sizeof(header), 1, file) == 1 &&
         std::fwrite(world_.data(), 1, world_.size(), file) == world_.size() &&
-        (centres_.empty() || std::fwrite(centres_.data(), sizeof(std::uint32_t), centres_.size(),
-                                         file) == centres_.size());
+        (cells_.empty() ||
+         std::fwrite(cells_.data(), sizeof(std::uint32_t), cells_.size(), file) == cells_.size());
     std::fclose(file);
 
     if (!written) {
         DeleteFileW(temp.c_str());
         return;
     }
-    if (MoveFileExW(temp.c_str(), path.c_str(),
-                    MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) {
+    if (MoveFileExW(temp.c_str(), path.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) {
         dirty_ = false;
     } else {
         DeleteFileW(temp.c_str());

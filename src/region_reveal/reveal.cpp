@@ -10,22 +10,31 @@
 #include <string>
 
 #include "../game/cube_world.hpp"
-#include "../game/landmarks.hpp"
 #include "../game/session.hpp"
 #include "../game/signatures.hpp"
+#include "../game/world.hpp"
 #include "../hooks.hpp"
+#include "areas.hpp"
+#include "crash.hpp"
 #include "log.hpp"
+#include "preview.hpp"
 #include "visited.hpp"
 
 namespace rr {
 namespace {
 
 InlineHook g_get_cell;
-VisitedRegions g_visited;
+VisitedAreas g_visited;
 CRITICAL_SECTION g_lock;
 bool g_lock_ready = false;
 
-cw::Region g_region;
+RevealedAreas g_areas;
+RevealWindow g_window;
+PreviewEngine g_preview{g_areas, g_window};
+
+// The area the player was last seen in, so entering one is logged once.
+bool g_in_area = false;
+std::int32_t g_area_seed = 0;
 DWORD g_checked = 0;
 
 // The thread that owns everything above. The map renderer and WorldMap::discover
@@ -41,8 +50,8 @@ std::atomic<DWORD> g_game_thread{0};
 std::uint8_t* g_draw_begin = nullptr;
 std::uint8_t* g_draw_end = nullptr;
 
-// A region spans 64 cells of 256 blocks, so the player cannot cross one in a
-// quarter second. Re-reading the pointer chain per getCell call would cost
+// An area spans dozens of cells of 256 blocks, so the player cannot cross one in
+// a quarter second. Re-reading the pointer chain per getCell call would cost
 // millions of dereferences per map frame for an answer that cannot have changed.
 constexpr DWORD kRecheckMs = 250;
 
@@ -52,7 +61,7 @@ constexpr DWORD kRecheckMs = 250;
 struct Counters {
     unsigned calls;
     unsigned rendering;
-    unsigned outside_visited;
+    unsigned outside_revealed;
     unsigned already_lit;
     unsigned no_content;
     unsigned revealed;
@@ -66,12 +75,11 @@ void report() {
     if (now - g_reported < 5000) return;
     g_reported = now;
     const unsigned long long per_call = g_diag.calls ? g_diag.cycles / g_diag.calls : 0;
-    log_linef("map draw: calls=%u rendering=%u | outsideVisited=%u alreadyLit=%u noContent=%u REVEALED=%u",
-              g_diag.calls, g_diag.rendering, g_diag.outside_visited, g_diag.already_lit,
+    log_linef("map draw: calls=%u rendering=%u | outsideRevealed=%u alreadyLit=%u noContent=%u REVEALED=%u",
+              g_diag.calls, g_diag.rendering, g_diag.outside_revealed, g_diag.already_lit,
               g_diag.no_content, g_diag.revealed);
-    log_linef("  cost=%llu cycles over %u calls = %llu/call | region=(%d,%d) world='%s'",
-              g_diag.cycles, g_diag.calls, per_call, g_region.x, g_region.y,
-              g_visited.world().c_str());
+    log_linef("  cost=%llu cycles over %u calls = %llu/call | area=%d world='%s'",
+              g_diag.cycles, g_diag.calls, per_call, g_area_seed, g_visited.world().c_str());
 }
 #define DIAG(expr) (expr)
 #else
@@ -91,10 +99,9 @@ bool from_map_renderer(const void* return_address) {
 // out for cell (x,y) is only ever reused for that same cell, so two live
 // pointers can never alias no matter how many the caller keeps.
 //
-// The map draws at most one region's cells, and only cells with content and
-// without the bit get a copy, so the table is sized past the whole 64x64 window
-// the renderer walks. If it ever did fill, shadowing stops rather than evicting
-// something a caller may still hold.
+// The label pass walks a 64 x 64 window of cells and only cells without the bit
+// get a copy, so the table is sized past that whole window. If it ever did fill,
+// shadowing stops rather than evicting something a caller may still hold.
 class ShadowCache {
 public:
     cw::MapCell* get(cw::MapCell* cell, int x, int y) {
@@ -117,7 +124,9 @@ public:
         return nullptr;  // full: hand back the real cell instead of aliasing
     }
 
-    // Only called when the region or world changes, between draws.
+    // Called from refresh_session, before the call that hands out a pointer, so
+    // no pointer handed out earlier is still in use. A copy is a snapshot, and the
+    // game fills a cell's point of interest in later, so copies are not kept long.
     void reset() {
         for (Slot& slot : slots_) slot.used = false;
         live_ = 0;
@@ -199,82 +208,53 @@ void probe_granularity(cw::WorldMap* map) {
 }
 #endif
 
-// Names what each region of the survey should contribute, so the expected
-// markers are known before anyone opens the map. A region whose storage chunk is
-// not resident says so rather than reporting a landmark it cannot see.
-void log_survey(cw::WorldMap* map, const cw::Region& centre) {
-    for (int dx = -rr::kSurveyRadius; dx <= rr::kSurveyRadius; ++dx) {
-        for (int dy = -rr::kSurveyRadius; dy <= rr::kSurveyRadius; ++dy) {
-            const int rx = centre.x + dx;
-            const int ry = centre.y + dy;
-            if (rx < 0 || ry < 0 || rx >= cw::kRegionDim || ry >= cw::kRegionDim) continue;
-
-            const cw::Landmark found = cw::landmark_at(map, rx, ry);
-            switch (found.status) {
-                case cw::LandmarkLookup::Ok:
-                    log_linef("  survey (%d,%d) raw=%u %s [%s]%s", rx, ry, found.raw,
-                              cw::landmark_name(found.raw),
-                              cw::landmark_kind_name(cw::landmark_kind(found.raw)),
-                              (dx == 0 && dy == 0) ? "  <- centre" : "");
-                    break;
-                case cw::LandmarkLookup::Unreadable:
-                    log_linef("  survey (%d,%d) UNREADABLE", rx, ry);
-                    break;
-                case cw::LandmarkLookup::NoChunk:
-                    log_linef("  survey (%d,%d) NO RECORD (chunk not resident)", rx, ry);
-                    break;
-            }
-        }
-    }
-}
-
 void refresh_session(cw::WorldMap* map) {
     const DWORD now = GetTickCount();
     if (now - g_checked < kRecheckMs) return;
     g_checked = now;
     DIAG(probe_granularity(map));
+    g_shadows.reset();
 
     const std::string world = cw::world_name(map);
     if (world != g_visited.world()) {
         EnterCriticalSection(&g_lock);
         g_visited.open(world);
         LeaveCriticalSection(&g_lock);
-        g_region = {};
-        g_shadows.reset();
+        g_areas.reset(g_visited.world(), g_visited.cells());
+        g_in_area = false;
     }
 
     // The title screen runs a live world with a player standing at a placeholder
     // position, but it has no name, and there is nothing to record without one.
     if (g_visited.world().empty()) return;
 
+    // Recorded areas far from here only become known once their storage chunk
+    // is generated, so the lookup is retried as the player moves.
+    g_areas.resolve(map);
+
     const cw::Cell here = cw::local_player_cell(map);
-    const cw::Region region = here.region();
-    if (!here.valid() || !region.valid() || region == g_region) return;
+    if (!here.valid()) return;
+    const cw::Area area = cw::area_at_cell(map, here.x, here.y);
+    if (!area.valid() || (g_in_area && area.seed == g_area_seed)) return;
 
     // Proof the player is really standing there: gameplay keeps revealing the
     // cells around the local player through WorldMap::discover. Nothing
     // guarantees a loading world's name and the player's position change in the
     // same frame, and a name paired with the title screen's placeholder position
-    // would record a region the player never entered. Read through the
+    // would record an area the player never entered. Read through the
     // trampoline, so this is the real cell and not a shadow.
-    cw::MapCell* cell = g_get_cell.original<cw::GetCellFn>()(map, here.x, here.y);
+    cw::MapCell* cell = cw::real_cell(map, here.x, here.y);
     if (!cell || !(*cw::cell_flags(cell) & cw::kRevealedBit)) return;
 
-    g_region = region;
-    g_shadows.reset();
-
-    // Dumped whenever the region changes, not only on a first visit. An earlier
-    // build logged it only for a new centre, so re-entering a known world -
-    // which is the normal case - produced no survey at all.
-    const bool isNew = g_visited.visit(region.x, region.y);
-    log_linef("%s region (%d,%d) in world '%s'; radius %d -> %u regions covered",
-              isNew ? "visited NEW" : "re-entered", region.x, region.y,
-              g_visited.world().c_str(), rr::kSurveyRadius,
-              static_cast<unsigned>(g_visited.covered()));
-    log_survey(map, region);
+    g_in_area = true;
+    g_area_seed = area.seed;
+    const bool isNew = g_areas.add(area.seed);
+    log_linef("%s %s area %d at cell (%d,%d) in world '%s'", isNew ? "entered NEW" : "re-entered",
+              area.ocean() ? "ocean" : "land", area.seed, here.x, here.y, world.c_str());
     if (!isNew) return;
 
     EnterCriticalSection(&g_lock);
+    g_visited.add(here.x, here.y);
     g_visited.flush();
     LeaveCriticalSection(&g_lock);
 }
@@ -295,13 +275,14 @@ cw::MapCell* __fastcall get_cell_detour(cw::WorldMap* self, void*, int x, int y)
     }
 #endif
     if (!rendering) {
-        // A region counts as visited when the player walks into it, not when
+        // An area counts as visited when the player walks into it, not when
         // the map happens to be open there. Tracking only from the renderer
-        // skipped every region crossed with the map closed, so it also runs
+        // skipped every area crossed with the map closed, so it also runs
         // here, for gameplay calls on the game thread; refresh_session's own
         // rate limit keeps that to one pointer-chain read every 250 ms.
         if (GetCurrentThreadId() == g_game_thread.load(std::memory_order_relaxed)) {
             refresh_session(self);
+            g_preview.tick(self);
         }
         return cell;
     }
@@ -309,32 +290,25 @@ cw::MapCell* __fastcall get_cell_detour(cw::WorldMap* self, void*, int x, int y)
     // The renderer is on the game thread by definition, which also covers a
     // load path where nothing told us that thread earlier.
     g_game_thread.store(GetCurrentThreadId(), std::memory_order_relaxed);
+    g_preview.note_map_drawn();
     if (!cell) return cell;
 
     refresh_session(self);
+    g_preview.tick(self);
 
-    if (!g_visited.revealed(cw::region_of(x), cw::region_of(y))) {
-        DIAG(++g_diag.outside_visited);
+    if (!g_window.revealed(x, y)) {
+        DIAG(++g_diag.outside_revealed);
         return cell;
     }
     if (*cw::cell_flags(cell) & cw::kRevealedBit) {
         DIAG(++g_diag.already_lit);
         return cell;
     }
-    // Deliberately not filtered on the cell's +0x10 field.
-    //
-    // That field means "this cell has generated content", and an unexplored cell
-    // has none - so filtering on it left nothing at all to reveal: a live session
-    // logged noContent=334873 against REVEALED=0. The marker pass at 0x4CA4FB
-    // gates only on the reveal bit and takes its icon from the region's own 0x68
-    // record, so a contentless cell can still carry a marker.
-    //
-    // Removing this filter once before crashed the game (0xC0000409 in the draw)
-    // after 82 million shadowed cells handed out from an aliasing ring. Both of
-    // those changed: shadows are now keyed by cell so they cannot alias, and a
-    // region is 64 cells rather than a 4096-cell storage chunk, so the volume is
-    // roughly three orders of magnitude lower. If it faults again the cause is
-    // semantic rather than lifetime, and the filter comes back for good.
+    // Deliberately not filtered on the cell's +0x10 field, the point-of-interest
+    // type. The landmark pass at 0x4CA4FB gates only on the reveal bit and takes
+    // its label from the 8 x 8 region's own 0x68 record, so a cell with no point
+    // of interest can still carry a landmark label. Filtering on it once hid every
+    // landmark: a live session logged noContent=334873 against REVEALED=0.
 #ifdef REGIONREVEAL_DIAGNOSTICS
     if (*cw::cell_content(cell) == 0) ++g_diag.no_content;
     ++g_diag.revealed;
@@ -371,6 +345,8 @@ void adopt_game_thread(unsigned long thread) {
 }
 
 bool initialize() {
+    install_crash_reporter();
+
     cw::ModuleRange text{};
     if (!cw::module_text(&text)) {
         log_line("could not locate the .text section of Cube.exe");
@@ -401,6 +377,11 @@ bool initialize() {
     if (!trampoline_works()) {
         g_get_cell.remove();
         log_line("getCell trampoline did not behave - hook backed out");
+        return false;
+    }
+    if (!cw::resolve_world_api(text, g_get_cell.original<cw::GetCellFn>())) {
+        g_get_cell.remove();
+        log_line("unsupported Cube World Alpha build - area functions not found, hook backed out");
         return false;
     }
 
