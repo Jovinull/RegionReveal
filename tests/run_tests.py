@@ -7,6 +7,7 @@ supported builds is reported rather than silently checked against the wrong
 expected addresses.
 """
 import hashlib
+import os
 import subprocess
 import sys
 
@@ -30,7 +31,9 @@ def sha256(path):
 def main():
     if len(sys.argv) < 3:
         raise SystemExit(__doc__)
-    tester, binaries = sys.argv[1], sys.argv[2:]
+    # CreateProcess does not search a relative path written with forward
+    # slashes, which is how the build instructions spell it.
+    tester, binaries = os.path.abspath(sys.argv[1]), sys.argv[2:]
 
     failed = 0
     for path in binaries:
