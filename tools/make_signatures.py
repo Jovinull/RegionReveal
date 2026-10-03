@@ -14,17 +14,13 @@ import sys
 
 from cwtool import Image
 
-# Function starts in the 2013-07-20 build, recovered in docs/REVERSE_ENGINEERING.md.
+# Function starts in the 2013-07-20 build, recovered in docs/REVERSE_ENGINEERING.md,
+# and how many bytes to cut. The area lookup's signature runs past the loop that
+# reads cube::World's area-centre table, so it also pins that table's offset.
 TARGETS = [
-    (0x602440, 'kSigWorldMapGetCell', 'cube::WorldMap::getCell(int,int)'),
-    (0x4C9680, 'kSigMapOverlayDraw', 'cube::MapOverlayWidget virtual slot 1 (draw)'),
-    (0x477E10, 'kSigWorldAreaAt', 'cube::World area lookup (block x, block y)'),
-    (0x5C5E20, 'kSigWorldTerrainHeight', 'cube::World terrain height (block x, block y, zone)'),
-    (0x4E6A20, 'kSigVoxelImageCtor', 'tile image constructor (renderer, flag)'),
-    (0x4E75C0, 'kSigVoxelImageResize', 'tile image resize (w, h, d)'),
-    (0x4E7870, 'kSigVoxelImageBuild', 'tile image mesh build'),
-    (0x601EB0, 'kSigDotListPushBack', 'std::list<border dot>::push_back'),
-    (0x46F870, 'kSigListClear', 'std::list clear (folded across element types)'),
+    (0x602440, 64, 'kSigWorldMapGetCell', 'cube::WorldMap::getCell(int,int)'),
+    (0x4C9680, 64, 'kSigMapOverlayDraw', 'cube::MapOverlayWidget virtual slot 1 (draw)'),
+    (0x477E10, 0x110, 'kSigWorldAreaAt', 'cube::World area lookup (block x, block y)'),
 ]
 
 
@@ -42,10 +38,14 @@ def cut(img, va, nbytes):
         if ins.mnemonic in ('call', 'jmp') and ins.size == 5 and raw[off] in (0xE8, 0xE9):
             keep[off + 1:off + 5] = b'\x00' * 4
             continue
-        for k in range(max(0, ins.size - 3)):
-            word = int.from_bytes(raw[off + k:off + k + 4], 'little')
+        # Only a displacement or an immediate can hold an address; any other
+        # four bytes that happen to look like one are opcode and ModRM bytes.
+        for at, size in ((ins.disp_offset, ins.disp_size), (ins.imm_offset, ins.imm_size)):
+            if size != 4:
+                continue
+            word = int.from_bytes(raw[off + at:off + at + 4], 'little')
             if lo <= word < hi:
-                keep[off + k:off + k + 4] = b'\x00' * 4
+                keep[off + at:off + at + 4] = b'\x00' * 4
     # Stop on an instruction boundary: a cut through the middle of an
     # instruction can leave part of an absolute address unwildcarded.
     return bytes(raw[:end]), bytes(keep[:end])
@@ -68,8 +68,8 @@ def main():
         raise SystemExit(__doc__)
     reference = images[0]
 
-    for va, name, desc in TARGETS:
-        raw, keep = cut(reference, va, 64)
+    for va, length, name, desc in TARGETS:
+        raw, keep = cut(reference, va, length)
         hits = {img.path: matches(img, raw, keep) for img in images}
         unique = all(len(h) == 1 for h in hits.values())
         print(f'// {desc}')
