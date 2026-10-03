@@ -50,15 +50,15 @@ vftable for `.?AVWorldMap@cube@@`.
 | `0x00` | vftable `0x71DFCC` | ctor writes it |
 | `0x90`–`0x9C` | four ints, ctor sets each to `-1` | ctor; purpose unknown |
 | `0xA0` | byte, ctor sets `0` | ctor |
-| `0xA4` | renderer, ctor arg 1; handed to every tile image's constructor | ctor; tile loader |
+| `0xA4` | renderer, ctor arg 1 | ctor; handed to every tile image |
 | `0xA8` | ctor arg 3 | ctor |
-| `0xAC` | `cube::World*`, ctor arg 2; world name at `+0x94` | ctor; `0x5FBC90` reads the name, the tile generator calls the area lookup on it |
+| `0xAC` | `cube::World*`, ctor arg 2; world name at `+0x94` | ctor; `0x5FBC90` reads the name |
 | `0xB0` | `void* chunkGrid[1024][1024]` | index maths in `0x602440` |
 | `0x4000B0` | second `1024×1024` dword grid | `0x601D87`: `shl ebx,0xA; add ebx,0x10002C` |
 | `0x8000B8` | int, ctor sets `0` | ctor; purpose unknown |
 | `0x8000BC` | int, count of revealed cells | incremented in `0x5FC160`, persisted as `"discovered"` |
 | `0x8000C0` | `CRITICAL_SECTION` | `EnterCriticalSection` / `LeaveCriticalSection` in `0x5FC160` |
-| `0x8000D8` | `CRITICAL_SECTION` guarding cells and tiles | held by `WorldMap::render`, the tile loader and the unloader; storage chunks are freed under it |
+| `0x8000D8` | `CRITICAL_SECTION` guarding cells and tiles | held by `WorldMap::render`, the tile loader and the unloader |
 | `0x8000F0` | `cube::Database` | ctor call `0x449380`; used for all map persistence |
 | `0x8000F8` | int, ctor sets `1` | ctor |
 | `0x8000FC` | vector-like `{begin,end,cap}` | ctor zeroes three dwords |
@@ -98,19 +98,17 @@ The cell constructor at `0x5FB7F0` writes vftable `0x71DFBC`, which the RTTI
 scan resolves to `.?AVZoneTile@cube@@`. The cell is a named game class, not an
 anonymous record.
 
-`0x34` bytes. The fields RegionReveal relies on:
+`0x34` bytes. The fields that matter here:
 
 | Offset | Meaning |
 |---|---|
-| `0x04` | the tile's lowest voxel layer, in 8-block units |
-| `0x08` | the cell's tile image, or null — this is the terrain |
-| `0x10` | point-of-interest type byte, `0x18` its level |
-| `0x20` | `std::list` of area-border dots |
-| `0x2C` | tile fade-in countdown |
-| `0x30` | flags; **bit 0 = revealed on the world map**, bit 1 = a `tile` record exists in the save |
+| `0x08` | the cell's tile image, or null — the terrain, which the mod leaves alone |
+| `0x10` | point-of-interest type byte, `0x18` its level — what the first label pass draws |
+| `0x20` | `std::list` of area-border dots — the dotted lines |
+| `0x30` | flags; **bit 0 = revealed on the world map** |
 
-`docs/POI_AND_TERRAIN.md` has the evidence for each. An earlier revision guessed
-`0x10` was a tile handle; it is not, and the tile is at `0x08`.
+RegionReveal reads only `0x30`, and only ever on its own copy does it set bit 0.
+An earlier revision guessed `0x10` was a tile handle; it is not.
 
 ### Revealing — CONFIRMED
 
@@ -147,10 +145,11 @@ This is the equivalent of the hypothetical `MapShouldDisplayPOI(poi)`: it is an
 **inline bit test**, not a call, so it cannot be hooked as a function. That is
 what shapes the design in `docs/../README.md`.
 
-This is the first of two **label** passes. The ground is drawn elsewhere, by
-`WorldMap::render` at `0x5FC1B0`, from the tile image at `+0x08` and without
-looking at the reveal bit except to colour placeholders; see
-`docs/POI_AND_TERRAIN.md`.
+This is the first of two **label** passes; the second calls `getCell` at
+`0x4CA4EE` and gates on the reveal bit alone. They are the draw method's only two
+`getCell` calls. The ground is drawn elsewhere, by `WorldMap::render` at
+`0x5FC1B0`, from the tile image at `+0x08` and without looking at the reveal bit
+except to colour placeholders. See `docs/MAP_LABELS.md`.
 
 ### Persistence — CONFIRMED (partially)
 
@@ -169,32 +168,39 @@ across `0x34000` bytes — so a written reveal bit would reach the save file.
 established rather than precautionary: chunk persistence is mapped, and it copies
 the cell bytes wholesale, so a reveal bit written into a cell would be saved.
 
-## Areas — CONFIRMED
+## Named areas — CONFIRMED
 
 The dotted lines on the map bound named areas, and `cube::World` is what knows
-them. These are the functions RegionReveal calls; all are found by signature in
-both builds (`src/game/signatures.cpp`).
+them.
 
-| Function | 2013-07-20 | Notes |
-|---|---|---|
-| area lookup `(world, blockX, blockY)` | `0x477E10` | noise warp `0x5EEFA0`, then the nearest of one centre per storage chunk at `World+0x4000BC`; returns null while that chunk is not generated. Area: name seed `+0x14`, kind `+0x18` (negative = ocean) |
-| terrain height `(world, blockX, blockY, zone)` | `0x5C5E20` | `ret 0xC`, float in `ST0`; analytic, needs no resident zone |
-| tile image constructor `(renderer, 0)` | `0x4E6A20` | `0x60`-byte object, `ret 8` |
-| tile image resize `(w, h, d)` | `0x4E75C0` | RGB voxels at `+0x30`, dimensions at `+0x44..+0x4C` |
-| tile image mesh build | `0x4E7870` | |
-| border-dot `push_back` | `0x601EB0` | the list at `ZoneTile+0x20` |
-| `std::list` clear | `0x46F870` | one body folded across element types |
+**The lookup**, `0x477E10(world, blockX, blockY)`, `__thiscall`, `ret 8`:
 
-The tile image is allocated with the game's own `operator new` from
-`msvcr110.dll`, so the game can free it with its virtual destructor.
+```
+cx0 = (x - 0x4000) / 0x4000, cx1 = (x + 0x4000) / 0x4000   ; same for y; truncating
+p   = position warped by noise (0x5EEFA0)
+for each chunk (cx, cy) in [cx0..cx1] x [cy0..cy1], inside 0..1023:
+    centre = world->areaCentres[cx * 1024 + cy]           ; World + 0x4000BC
+    if centre: keep the one with the smallest 0x5EEEE0(centre, p)
+return the kept centre, or null
+```
 
-Where the map is looking lives in the `WorldMap`'s owner: a view cell at
-`owner+0x2BC` (two ints) and the player's pan at `owner+0x1000E4C` (two floats,
-in blocks). The map data worker computes its centre as cell + pan / 256, and so
-does the mod.
+A storage chunk is `0x4000` = 16384 blocks, 64 cells, so the lookup compares
+the centres of the chunk holding the position and its eight neighbours. Its
+signature runs to the table base index (`add ebx, 0x10002F`) and the bounds
+checks, so the table's offset is verified in both builds.
 
-The rest of the tile pipeline — loader `0x469590`, `0x603A00`, zone manager
-`0x46A8A0`, unloader `0x5FBED0` — is in `docs/POI_AND_TERRAIN.md`.
+**The centres** are made by `0x5D7A70(world, cx, cy)`: if the table entry is
+empty it allocates a `0x1C`-byte centre, seeds it from the chunk and the world
+(`+0x14 = (cy << 10) + cx + world[0x800188]`), places it, and stores it. Its only
+caller is `0x5DA280`, which builds the world region for a chunk after making the
+centres two chunks around it; that in turn is called only from `0x5E4850`, the
+zone generator, for the chunks around each zone the zone manager (`0x46A8A0`)
+builds near the players. Nothing frees a centre while a world is loaded.
+
+So centres exist only around where players have been, and far from there the
+lookup can return the nearest of an incomplete set — the wrong area. RegionReveal
+accepts an answer only when all nine candidates exist, and names the area by the
+chunk whose table entry the lookup returned.
 
 ## Regions
 
@@ -227,23 +233,23 @@ coordinate is `pos >> 16`, and one map cell spans 256 blocks. The same shape
 appears at `0x48CFF7`.
 
 `discover` is called from three functions (`0x4882E0`, `0x4886E1`, `0x48CF07`),
-two of which iterate a list (strides `0x68` and `0x100`). **It is therefore not
-proven that every `discover` call carries the local player's position** — in
-multiplayer it may well be driven per creature. This is the weakest link in the
-mod and is called out in the README's limitations.
+two of which iterate a list (strides `0x68` and `0x100`), so it is not proven that
+every `discover` call carries the local player's position. RegionReveal does not
+rely on it: it reads the local player's position itself.
 
 ## What is still unverified
 
 - Which serialized byte of a `reg` record holds the reveal bit. The record format
   resisted decoding and a falsification test failed; see `docs/AUDIT.md`.
-- Who writes `ZoneTile+0x10` — the world generator, by every indication, but the
-  write was never traced.
+- Who writes `ZoneTile+0x10`. It fills in seconds after a world loads, as zones
+  generate, but the write was never traced.
 - `WorldMap+0x90..0x9C` is a **closed** lead: written only by the constructor,
   to `-1`, and by nothing else in the translation unit.
-- Whether `discover(x, y)` always refers to the local player.
 - The full point-of-interest and landmark taxonomy. `+0x10` type 1 is a city
   and four landmark values are pinned; dungeon and boss are not separated, so
   per-category configuration is not implemented rather than faked.
+- What `0x5FA4C0` computes for a landmark record and a cell position; the
+  landmark pass draws only when it is positive.
 
 Most of the rest has since been exercised in the running game; see
 `docs/TESTING.md`.

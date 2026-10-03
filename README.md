@@ -1,55 +1,49 @@
 # Region Reveal
 
-Reveals the whole named area you walk into on Cube World Alpha's world map:
-every city, dungeon, landmark and point of interest in it, and the shape of its
-terrain.
+When you walk into a named area in Cube World Alpha — "Lands of Durala",
+"Damarok Ocean", the regions the world map outlines with dotted lines — every
+label in that area appears on the world map: cities and their districts,
+castles, palaces, catacombs, ruins, mountains, canyons, valleys, lakes.
 
-> **Working on both Alpha builds, checked in the running game on 2026-10-03.**
-> Entering "Lands of Ikokor" lit up the 4 499 cells of that area at once - Ikokor
-> City, palaces, catacombs, ruins, a forest - and the map drew real relief,
-> water and the dotted area borders over ground the player had never been near.
-> Walking into the next area does the same for that one. See
-> [`docs/TESTING.md`](docs/TESTING.md).
+Only the labels. The ground stays exactly as you explored it, and the game's
+save is never touched.
+
+> **Checked in the running game on 2026-10-03.** In a new world, entering
+> "Lands of Durala" put every label of its 3 610 cells on the map at once. A
+> diagnostic build compared each one against the game's own data: of the 33
+> landmark labels in view, 32 were shown by the mod and 1 was already explored,
+> and all 25 points of interest in the area were shown, with none hidden inside
+> the area and none leaking outside it. See [`docs/TESTING.md`](docs/TESTING.md).
 
 ## What it does
 
-The map's dotted lines are the borders between the game's **named areas** -
-"Lands of Asmi", "Damarok Ocean" - which `cube::World` lays out as a warped
-Voronoi of one centre per storage chunk. An area typically covers 2 000 to 6 000
-map cells, roughly 45 to 80 cells or 11 000 to 20 000 blocks across.
+When the player enters an area for the first time, RegionReveal remembers it,
+and from then on the map's label passes see every cell of that area as
+revealed. The game then draws the labels it already has for those cells, the
+same way it would after you had walked over every one of them.
 
-When the player enters an area for the first time, RegionReveal:
-
-- **reveals every cell of that area** to the map, so every label the game has
-  for it - cities, palaces, dungeons, ruins, catacombs, mountains, forests - is
-  drawn, however far from the player it is;
-- **draws its terrain** where the game has none yet: around the map's centre,
-  each cell of a revealed area without a real tile gets a preview built from the
-  world generator's own height function - real relief, coast and water, rock on
-  cliffs, snow on peaks - and the area borders are drawn over it as dotted lines.
-  Real tiles always win: a cell that has one, or has one in the save, never
-  gets a preview.
-
-Areas stay revealed across sessions, kept per world in
-`RegionReveal_<world>.visited` beside the game. Areas never entered, and areas
-of another world, stay hidden.
-
-It does this **without writing to the game's save**. The reveal is a copy of the
-cell with the bit set, handed only to the map renderer; previews live in memory
-and are never written, so `Save/` is exactly what vanilla play would leave.
+Entered areas stay revealed across sessions, kept per world in
+`RegionReveal_<world>.visited` beside the game. Areas you never entered, and
+areas of other worlds, stay hidden.
 
 ## What it does not do
 
-Quests, bosses, loot, fast travel and world generation are untouched. Fast
-travel and every other gameplay caller keep seeing the real map.
+- **It does not reveal terrain.** The map's ground comes from tiles the game
+  generates near where you have been; the mod leaves those, and the blue squares
+  around them, alone.
+- **It does not invent anything.** A label appears only when the game has
+  generated it. Right after a world loads, the points of interest close to the
+  player (city districts, dungeon entrances) take a few seconds to be filled in.
+- **It does not touch gameplay.** Quests, bosses, loot, fast travel and world
+  generation are untouched. Only the two map passes that draw labels get a
+  different answer; every other caller of the same function, fast travel
+  included, keeps seeing the real map.
+- **It does not write to the save.** The reveal bit is set on a copy of the cell
+  handed to the label pass, never on the cell itself.
 
-It cannot invent points of interest. A label appears only once the game has
-generated the storage chunk that carries it; a far corner of a huge area fills
-in as the world generator reaches it.
-
-Preview terrain is an approximation: the relief is the game's, the colours are
-not. Trees, buildings and the exact biome palette appear only when the game
-builds the real tile.
+The game draws points of interest (city districts, dungeon entrances) only when
+the map is zoomed in, and landmark names at any zoom. That is vanilla behaviour,
+and the mod follows it.
 
 ## Supported builds
 
@@ -58,30 +52,16 @@ startup, so no absolute address is hard-coded.
 
 The 2013-07-20 build is the one the Alpha modding ecosystem targets — the Cube
 World Mod Launcher v1.5 accepts only its exact file size and calls it **Alpha
-0.1.1**, and Qube-Loader's hard-coded offsets resolve in it and not in the
-2013-07-02 build. Details in [`docs/QUBE_COMPATIBILITY.md`](docs/QUBE_COMPATIBILITY.md).
+0.1.1**. Details in [`docs/QUBE_COMPATIBILITY.md`](docs/QUBE_COMPATIBILITY.md).
 
 | Build | `Cube.exe` SHA-256 | Size |
 |---|---|---|
 | 2013-07-20 (primary) | `84a7a132a84d4282338e7ea45a1940d32066d64e39cbafed8f2418d5a6dc30bf` | 3 885 568 |
 | 2013-07-02 | `a4eeb3606ad2b82e4c9b3d0db6f9472ffa6e89a4d56084a9114ff1fb3c812699` | 3 878 400 |
 
-Anything else is refused: if a signature is missing — or matches twice — no hook
-is installed at all, a line is written to `RegionReveal.log`, and the game runs
+Anything else is refused: if a signature is missing or matches twice, no hook
+is installed, a line is written to `RegionReveal.log`, and the game runs
 unmodified. Full audit in [`docs/TARGET_BUILD.md`](docs/TARGET_BUILD.md).
-
-## Building
-
-Requires Visual Studio 2022 Build Tools with the 32-bit MSVC toolset and a
-Windows SDK. The game is PE32, so the mod must be 32-bit.
-
-```sh
-cmake -B build -A Win32
-cmake --build build --config Release
-```
-
-Produces `dinput8.dll`, plus `RegionReveal.dll` and `RegionRevealLauncher.exe`
-for the injection route, and the two test programs.
 
 ## Installing
 
@@ -94,92 +74,60 @@ game's entry point and forwards that call to the real `dinput8.dll` in
 `System32`. **One file is added; nothing is renamed, replaced or written to.**
 Delete it and the install is stock again.
 
-There is also `RegionReveal.dll` plus `RegionRevealLauncher.exe`, the same mod
-loaded by injection instead. It works, but antivirus blocks the launcher on
-sight — `CreateRemoteThread` into another process is the textbook injection
-pattern — so the proxy above is the supported route.
+Expect the antivirus to object. The mod patches five bytes of `Cube.exe` in
+memory, which is genuinely the same technique a malicious hook uses; see
+[`docs/TOOLING.md`](docs/TOOLING.md) for what the DLL does and does not link
+against.
 
-Expect the antivirus to object to the proxy too. The mod patches five bytes of
-`Cube.exe` in memory, which is genuinely the same technique a malicious hook
-uses; see `docs/TOOLING.md` for what the DLL does and does not link against.
+`RegionReveal.log`, beside the game, records which build was detected and every
+area you enter. Back up your `Save/` folder before playing with any mod, this
+one included.
 
-Back up your `Save/` folder before playing with any mod, this one included.
+## Building
 
-### Settings
+Requires Visual Studio 2022 Build Tools with the 32-bit MSVC toolset and a
+Windows SDK. The game is PE32, so the mod must be 32-bit.
 
-Optional. A `RegionReveal.ini` beside `Cube.exe` is re-read every two seconds
-while the game runs:
-
-```ini
-[preview]
-enabled=1   ; 0 frees every terrain preview and builds no more
-radius=6    ; cells around the map centre that get a preview, 0 to 9
+```sh
+cmake -B build -A Win32
+cmake --build build --config Release
+build/Release/region_test.exe
+python tests/run_tests.py build/Release/signature_test.exe "<game folder>/Cube.exe"
 ```
-
-Without the file the defaults above apply. Area reveal itself has no switch:
-removing the DLL is the off switch.
 
 ## How it works
 
-One 5-byte detour, on `cube::WorldMap::getCell(x, y)`, found by signature, and
-everything else runs from inside it on the game thread.
+One 5-byte detour, on `cube::WorldMap::getCell(x, y)`, installed from `DllMain`
+before the game has started any thread.
 
-- **Tracking.** Gameplay keeps calling `getCell` around the player. Four times a
-  second the detour reads the local player's cell, asks the game's own area
-  lookup which area it belongs to, and records a cell of every area entered for
-  the first time.
-- **Revealing.** Around the map's view centre the mod keeps a bitmap of which
-  cells belong to a revealed area, recomputed a few rows a frame. When the map
-  renderer asks for such a cell, it gets a copy with the reveal bit set; the
-  real cell is never written.
-- **Terrain.** While the map is open, cells of revealed areas that have no tile
-  get a 32 × 32 voxel image built from `cube::World`'s height function, allocated
-  and meshed by the game's own tile code and attached to the cell in memory, with
-  the area-border dots the game's tile generator would have computed. About
-  10 ms of work each, spread over frames in slices of at most 5 ms.
-
-The return-address check matters: `getCell` has nine callers, and only the map
-renderer should see the modified answer. Gameplay code asking the same question
-keeps getting the truth, which is what stops the mod from leaking into fast
-travel or progression.
+- **Tracking.** Four times a second, on the game's main thread, the mod reads
+  the local player's cell and asks `cube::World`'s own area lookup which area it
+  belongs to. An area entered for the first time is recorded.
+- **Revealing.** The map overlay draws labels in two passes, and each calls
+  `getCell` from exactly one place. When one of those two calls asks for a cell
+  of a recorded area, it gets a copy with the reveal bit set. The answer for
+  each cell is cached, so the game's lookup runs once per cell, not per frame.
+- **Never guessing.** The game's lookup picks the nearest of the area centres it
+  has generated so far, so far from where the player has been it can name the
+  wrong area. The mod only trusts an answer once every centre the lookup
+  compares exists; until then the cell stays hidden and is asked again a second
+  later.
 
 Details and evidence: [`docs/BEHAVIOUR.md`](docs/BEHAVIOUR.md),
-[`docs/POI_AND_TERRAIN.md`](docs/POI_AND_TERRAIN.md) and
+[`docs/MAP_LABELS.md`](docs/MAP_LABELS.md) and
 [`docs/REVERSE_ENGINEERING.md`](docs/REVERSE_ENGINEERING.md).
-
-## Status
-
-Verified in the running game on 2026-10-03:
-
-- on both builds, entering an area reveals all of it, labels and terrain, and
-  the area is recorded on entry whether or not the map is open;
-- on 2013-07-20, the next area is added when the player crosses into it, a
-  history from the earlier region-based format is converted on first load,
-  previews are released when the map closes with no memory left behind, and a
-  stress run of 16 teleports between areas with the map toggled throughout held
-  private memory between 1.05 and 1.21 GB and exited cleanly.
-
-Earlier rounds are in [`docs/TESTING.md`](docs/TESTING.md) and
-[`docs/AUDIT.md`](docs/AUDIT.md), including the A/B that proved the reveal never
-reaches the save.
 
 ## Known limitations
 
-- **Terrain shows near the map's centre only.** Previews cover 6 cells around
-  the map's view centre by default, 9 at most, and only while the map is open.
-  The game frees every tile further than 10 cells from that centre each second,
-  previews included, and `Cube.exe` is a 32-bit process that is not
-  large-address-aware: it already runs within a few hundred MB of its 2 GB limit,
-  and each preview costs about 230 KB. Labels are not limited this way. Building
-  pauses below 400 MB of free address space and previews are released below
-  250 MB.
-- **Preview colours are approximate.** Grass, sand, rock, snow and water are
-  picked from height and slope, not from the game's biome data.
-- **Boss is not covered separately.** Whatever represents a boss on the map has
-  not been investigated; no claim is made either way.
-- **No per-category toggles**, deliberately: the reveal unit is the area, and
-  only four landmark types are identified with confidence (City, Mountain,
-  Forest, Lake).
+- **Labels only fill in where the game has generated the world.** A visited area
+  far from where you are now is restored when you get near it again, as the
+  world generator reaches it.
+- **A landmark on an area's border can show from either side.** The game keeps
+  one landmark per 8 × 8 block of cells, and the label of a block cut by the
+  border can show as soon as any of its cells is in an area you entered.
+- **Boss is not covered separately.** No per-category toggles, deliberately:
+  the reveal unit is the area, and the game's own categories are only partly
+  identified.
 
 ## Licence
 

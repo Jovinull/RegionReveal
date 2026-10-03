@@ -84,26 +84,22 @@ are hooked correctly at runtime.
 
 ## Addresses are per build — do not mix
 
-Every function moved between the two builds:
+Every function moved between the two builds. The first three are the ones the
+mod finds by signature; the others are references used in the docs.
 
 | Function | 2013-07-02 | 2013-07-20 |
 |---|---|---|
 | `cube::WorldMap::getCell` | `0x600ED0` | `0x602440` |
-| `cube::WorldMap::discover` | `0x5FAC10` | `0x5FC160` |
 | `cube::MapOverlayWidget` draw | `0x4C9490` | `0x4C9680` |
-| `cube::WorldMap` constructor | `0x5F9850` | `0x5FAE40` |
 | `cube::World` area lookup | `0x478330` | `0x477E10` |
-| `cube::World` terrain height | `0x5C4860` | `0x5C5E20` |
-| tile image constructor | `0x4E5CF0` | `0x4E6A20` |
-| tile image resize | `0x4E6650` | `0x4E75C0` |
-| tile image mesh build | `0x4E6900` | `0x4E7870` |
-| border-dot `push_back` | `0x600940` | `0x601EB0` |
-| `std::list` clear | `0x46FB50` | `0x46F870` |
+| `cube::WorldMap::discover` | `0x5FAC10` | `0x5FC160` |
+| `cube::WorldMap` constructor | `0x5F9850` | `0x5FAE40` |
 
 Structure offsets, by contrast, are identical in both — the signatures embed
-them (`+0x8000C0`, `+0x8000BC`, `+0x30`, stride `0x34`, the tile image's `+0x30`
-and `+0x44..+0x4C`) and still match, which is the evidence for that claim. The
-offsets no signature covers — the owner's view cell and pan, the area's seed —
-were checked by running the area reveal and previews on the 2013-07-02 build on
-2026-10-03. This is why the mod resolves *functions* by pattern
-and hard-codes only *field offsets*.
+them (stride `0x34` and the grid shift in `getCell`, the area-centre table at
+`World+0x4000BC` and its bounds in the area lookup) and still match, which is
+the evidence for that claim. The offsets no signature covers — the local player
+at `controller+0x8006D0`, its position, the world name at `World+0x94` — were
+exercised on the 2013-07-02 build on 2026-10-03, when a new world there recorded
+its first area at the player's cell under the right world name. This is why the
+mod resolves *functions* by pattern and hard-codes only *field offsets*.

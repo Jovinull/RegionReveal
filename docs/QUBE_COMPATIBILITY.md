@@ -83,13 +83,12 @@ nothing, and no ecosystem tool would touch it.
 Not yet, and the reason is not inertia.
 
 **In favour:** Qube already exposes player, world, creature and camera state, an
-event and hook bus, config/storage services, and a shared ImGui overlay. The
-local-player chain that this project still lacks — `kLocalPlayerPtr 0x0076B1C8`
-to `GameController*`, then `+0x8006D0` to the local `Creature*`, position as
-int64 fixed point at `+0x10`/`+0x18` divided by 65536 — is already solved there,
-and it is exactly what `docs/AUDIT.md` lists as the outstanding FAIL. That chain
-is independently corroborated here: the map renderer reads `GC + 0x8006D0` at
-`0x4C98C4`, and `0x0076B1C8` is a `.data` global with 45 code references.
+event and hook bus, config/storage services, and a shared ImGui overlay. Its
+local-player chain — `kLocalPlayerPtr 0x0076B1C8` to `GameController*`, then
+`+0x8006D0` to the local `Creature*`, position as int64 fixed point at
+`+0x10`/`+0x18` divided by 65536 — is the one RegionReveal reads, reached here
+from the `WorldMap` instead of the global; the map renderer reads the same
+`GC + 0x8006D0` at `0x4C98C4`.
 
 **Against:** Qube is GPL-3.0 and RegionReveal is MIT, so vendoring it would force
 a licence change. It describes itself as an early proof of concept with an
@@ -97,12 +96,14 @@ evolving API. And it needs an injector, which is the thing the scanner on this
 machine rejects outright.
 
 **Recommendation:** keep the core loader-agnostic — `rr::initialize()` and
-`rr::shutdown()` are the entire contract, and nothing under `src/game/` or
-`src/region_reveal/` knows how the DLL arrived. Adding a Qube backend later is a
-new file under `src/loader/`, not a rewrite.
+`rr::adopt_game_thread()` are the entire contract, and nothing under `src/game/`
+or `src/region_reveal/` knows how the DLL arrived. A Qube backend would be a new
+file under `src/loader/`, with one caveat: injected after the game has started,
+the five-byte patch is no longer written before any game thread exists.
 
 **Worth contributing upstream regardless of that decision:** the world-map
 findings in `docs/AUDIT.md` — `cube::ZoneTile` as the map cell, the
 `land`/`reg`/`tile`/`discovered` save schema, the reveal bit at `ZoneTile+0x30`,
-`WorldMap::getCell` at `0x602440` and `WorldMap::discover` at `0x5FC160` — do not
-appear in Qube's `offsets.h`, which has no world-map coverage at all.
+`WorldMap::getCell` at `0x602440`, `WorldMap::discover` at `0x5FC160`, the map's
+two label passes and `cube::World`'s area lookup at `0x477E10` — do not appear
+in Qube's `offsets.h`, which has no world-map coverage at all.

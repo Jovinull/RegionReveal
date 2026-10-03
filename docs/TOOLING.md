@@ -31,9 +31,9 @@ than a decompiler session, and the mod needs no memory scanning.
   decompiler becomes worthwhile the moment someone wants the *contents* of the
   6650-byte draw function.
 - **x32dbg, ReClass.NET, Cheat Engine** — all dynamic. The runtime checks in
-  `docs/TESTING.md` were done with the mod's own log, a small `SendInput` and
-  `ReadProcessMemory` harness kept outside the repo, and the crash reporter
-  below. x32dbg is still what the open questions in
+  `docs/TESTING.md` were done with the mod's own log, a test-only build with
+  counters in the detour, and a small `SendInput` and `ReadProcessMemory`
+  harness kept outside the repo. x32dbg is still what the open questions in
   `docs/REVERSE_ENGINEERING.md` need.
 - **MinHook** — the mod installs exactly one detour on a function whose stolen
   bytes were verified to be position-independent, so `src/hooks.cpp` is ~60 lines
@@ -55,7 +55,9 @@ python tools/cwtool.py <Cube.exe> vft <va> [n]         # vftable slots
 
 `python tools/make_signatures.py <primary Cube.exe> <other Cube.exe>` re-cuts the
 byte signatures in `src/game/signatures.cpp` and refuses any that is not unique
-in every build passed.
+in every build passed. Only branch targets and displacement or immediate fields
+holding an address inside the image are wildcarded; everything else, structure
+offsets included, has to match.
 
 ## Working on copies
 
@@ -86,11 +88,6 @@ build/Release/region_test.exe
 python tests/run_tests.py build/Release/signature_test.exe "<game>/Cube.exe" ["<other game>/Cube.exe"]
 ```
 
-`-DREGIONREVEAL_CRASHDUMP=ON` builds the mod with a vectored handler that also
-writes `RegionReveal_crash.dmp` beside the game when it crashes; without it, a
-crash still leaves a `CRASH` line with module offsets and a stack walk in
-`RegionReveal.log`.
-
 ### Antivirus
 
 The active scanner on this machine is **McAfee**, not Defender — Defender's
@@ -103,8 +100,10 @@ Three interventions seen, all heuristic rather than signature matches:
 - `signature_test.exe` was quarantined right after building. It embeds long
   literal byte sequences copied out of `Cube.exe`, so a scanner sees a program
   carrying fragments of another executable.
-- `RegionRevealLauncher.exe` is **blocked outright**. `CreateRemoteThread` plus
-  `LoadLibraryW` into another process is the textbook injection pattern.
+- An injection launcher shipped by earlier versions was **blocked outright**:
+  `CreateRemoteThread` plus `LoadLibraryW` into another process is the textbook
+  injection pattern. It has been removed; the `dinput8.dll` proxy is the only way
+  the mod loads.
 - A freshly built `dinput8.dll` survives on disk but is **deleted the moment
   Cube.exe loads it**, while an older build of the same source is left alone.
   That is reputation-based: an unknown binary that patches another module's
@@ -117,7 +116,7 @@ a malicious hook does. What separates them is intent and provenance, and a
 scanner cannot see either.
 
 What the DLL actually links against is checkable, and is the argument to make
-when whitelisting it: `kernel32.dll` only, 93 imports, nothing from `ws2_32`,
+when whitelisting it: `kernel32.dll` only, 92 imports, nothing from `ws2_32`,
 `wininet` or `winhttp`, no `CreateProcess`, no registry, no `OpenProcess` or
 `WriteProcessMemory`.
 

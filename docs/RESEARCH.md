@@ -14,9 +14,9 @@ below were not individually audited because nothing was reused.
 
 **Conclusion that shaped this project:** the best-maintained loader is bound to
 the 2019 release by an exact CRC32, so it will refuse an Alpha executable, and no
-loader was found that names a specific Alpha build. RegionReveal therefore ships
-its own minimal launcher (`tools/launcher/`) rather than depending on one. The
-DLL itself is a plain `LoadLibrary` target, so any injector works.
+loader was found that names a specific Alpha build. RegionReveal therefore loads
+itself, as a `dinput8.dll` proxy the game picks up from its own folder, rather
+than depending on one.
 
 ## Reverse-engineering references
 

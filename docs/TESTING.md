@@ -1,174 +1,112 @@
 # Testing
 
-Loading, hooking, area reveal and terrain previews have been verified in the
-running game. The region-based version was run through tests A, B, C, G and part
-of I on 2026-10-02; the area-based version through A, C, J and L on 2026-10-03,
-on both builds. The game was driven with synthetic input and the
-player's position read out of the process; see the two runs below. D, E and F,
-and H against a live unsupported build, are still open.
+## Offline
 
-Back up `Save/` before any of it.
+Two programs, built with the mod, need no running game:
 
-## Already verified
+```sh
+build/Release/region_test.exe
+python tests/run_tests.py build/Release/signature_test.exe "<2013-07-20>/Cube.exe" "<2013-07-02>/Cube.exe"
+```
 
-Run against isolated copies of both installs, never the originals:
+- `region_test` — 68 checks over the logic that needs neither the game nor a
+  `Cube.exe`: which chunks the area lookup compares for a cell, including the
+  world's edges; the visited file (round trip, exact bytes on disk, version 2
+  conversion, world isolation, accepted and refused world names, every kind of
+  damaged file); the revealed-area set; and the per-cell answers the label
+  passes get, with a fake world that can refuse to decide (an undecided cell is
+  not revealed and is asked again after a second, a decided one is looked up
+  once, a new area updates cached answers, copies carry the bit and never alias
+  within a 64 × 64 window).
+- `signature_test` — every signature must match exactly once, at the address
+  recorded in `docs/TARGET_BUILD.md`, in each supported build. `run_tests.py`
+  identifies each executable by SHA-256 first. `Server.exe` is refused: the
+  `getCell` and map-overlay signatures do not match in it.
 
-| Check | Result |
+## In the game
+
+Back up `Save/` first, then copy `dinput8.dll` beside `Cube.exe`.
+
+`RegionReveal.log`, beside the game, is the record of what the mod did:
+
+| Line | Meaning |
 |---|---|
-| `Cube.exe` starts unmodified in this environment | runs, windowed 1280×720 |
-| Proxy loads before the entry point, 2013-07-20 build | `supported build detected; RegionReveal active` |
-| Same, 2013-07-02 build | `supported build detected; RegionReveal active` |
-| Signatures resolve in the **live mapped image** | all of them, both builds |
-| `getCell` trampoline executes and returns correctly | startup self-check passes |
-| Game survives with both detours installed | ~14 s, ~700 MB, no crash |
-| Signatures on disk land on documented RVAs | `tests/run_tests.py`, both builds |
-| Signatures refuse an unrelated binary (`Server.exe`) | no match, hooks would be skipped |
+| `supported build detected; RegionReveal active (set up in N ms)` | the hook is in; anything else at start-up means the game runs unmodified |
+| `visited: N areas recorded in world 'name'` | a world was opened and its file read |
+| `entered new area (X,Y) at cell (x,y) in world 'name'` | an area was entered for the first time and written to the file |
+| `back in area (X,Y) ...` | the player moved into an area already recorded |
 
-The startup self-check calls `getCell(nullptr, -1, -1)` through the trampoline.
-The function rejects a negative coordinate before touching `this`, so the call
-is side-effect free, and a bad trampoline faults there rather than somewhere
-unattributable later.
+The area is named by the storage chunk of its centre, so two lines with the
+same `(X,Y)` are the same area.
 
-## Preconditions for the rest
-
-1. Build per `README.md`, copy `dinput8.dll` next to `Cube.exe`, start the game.
-2. Check `RegionReveal.log` beside the executable. It must read
-   `supported build detected; RegionReveal active`. Anything else means no hook
-   was installed and the remaining tests are meaningless.
-
-## Functional tests
+Points of interest (city districts, dungeon entrances) are drawn by the game
+only when the map is zoomed in; landmark names show at any zoom.
 
 | | Scenario | Expected |
 |---|---|---|
-| **A** | Enter an area not visited before, open the map. | Every label inside the area's dotted border is visible without walking over it. |
-| **B** | With the map open, look across the border. | The next area stays dark. Reveal must not spill past the dotted line. |
-| **C** | Walk into an area outside the history **with the map closed**, then open it. | The area is recorded on entry, not on opening the map; it is revealed and the previous areas stay revealed. |
-| **D** | Find a revealed dungeon marker, approach it. | Marker matches a real dungeon. The dungeon is not entered, cleared or flagged complete. |
-| **E** | Same for a boss marker. | Boss is alive, undamaged, not credited as defeated. |
-| **F** | Same for a city. | City renders as it normally would; NPCs, vendors and quests behave as vanilla. |
-| **G** | Quit, reopen the world with and without the DLL. | With it, coverage comes back from `RegionReveal_<world>.visited`. Without it, the map shows only what the player genuinely explored. If mod-revealed markers survive without the DLL, the no-write assumption is wrong — stop and re-examine `docs/REVERSE_ENGINEERING.md`, "Persistence". |
-| **H** | Run the DLL against any other Cube World build. | `RegionReveal.log` reports an unsupported build, no hook is installed, the game runs normally and does not crash. |
-| **I** | Play ~30 minutes crossing several areas, opening the map often. | No crash, no map corruption, no frame-time degradation. |
-| **J** | Open the map in a revealed area. | Ground with relief, water and dotted borders appears around the map's centre within a second or two, including where the player has never been. |
-| **K** | Walk towards previewed ground. | Previews turn into real tiles, trees and buildings included, as the game generates them; no cell stays a preview once a real tile exists. |
-| **L** | Quit through the menu after a session with previews. | No crash and no `CRASH` line in `RegionReveal.log`; `Save/map_*.db` gains `tile` records only where the player actually was. |
+| **A** | Enter an area not visited before, open the map. | Every landmark inside the area's dotted border is labelled; zoomed in, its points of interest too. The ground is unchanged. |
+| **B** | Pan the map across the dotted border. | The neighbouring area's labels are absent, except a landmark whose 8 × 8 block straddles the border. |
+| **C** | Walk into another area **with the map closed**, then open it. | `entered new area` is logged on arrival, not when the map opens; both areas are labelled. |
+| **D** | Approach a revealed dungeon. | It is not entered, cleared or flagged complete. |
+| **E** | Same for a boss. | Alive, undamaged, not credited as defeated. |
+| **F** | Same for a city. | NPCs, vendors and quests behave as vanilla. |
+| **G** | Quit, reopen the world with and without the DLL. | With it, `visited: N areas` and the same labels come back. Without it, the map shows only what was genuinely explored. |
+| **H** | Run the DLL against any other Cube World build. | The log reports an unsupported build, no hook is installed, the game runs normally. |
+| **I** | Play about 30 minutes across several areas, opening the map often. | No crash, no map corruption, no frame-time change. |
 
-## Run on 2026-10-02
+### Test G is the important one
 
-2013-07-20 build, Release `dinput8.dll` built from this tree, existing world
-`sdaads`. The game was driven with `SendInput`; the player's position was read
-with `ReadProcessMemory` through the same chain the mod uses, located by
-scanning for `cube::WorldMap`'s vftable. `Cube.exe` is `DYNAMIC_BASE` and loaded
-at `0xE60000` that day, so any VA from the docs has to be rebased first.
+It is the test that can falsify the central design claim. RegionReveal never
+writes to a map cell — it hands the label pass a copy — so a reloaded world
+without the DLL must show the map exactly as vanilla exploration left it. If
+labels the mod revealed survive without the DLL, something is writing through.
+
+## Run on 2026-10-03, label-only version
+
+2013-07-20 build. A test-only build of the same source added counters to the
+detour: for every cell the two label passes asked about, whether the game had
+revealed it, whether the mod did, and whether its area was recorded, undecided
+or another one. Never shipped; the counters are what make "every label shown"
+checkable rather than a matter of counting text on a screenshot.
 
 | Check | Result |
 |---|---|
 | Offline: `region_test`, `signature_test` on both builds, `Server.exe` refused | pass |
-| Mod loads, hook installs, game runs | `supported build detected; RegionReveal active` |
-| A — open the map in a visited region | 24 landmark labels over unexplored ground |
-| C, before the fix — cross into `(4102,4101)` with the map closed | **fail**: nothing recorded until the map was opened |
-| C, after the fix — cross into `(4103,4101)` with the map closed | `visited NEW region (4103,4101) … 36 regions covered` logged on entry, file rewritten with 4 sorted centres; the new region's label appeared on the next map open |
-| C, again, into another storage chunk — `(4104,4101)`, chunk 513 | `visited NEW region (4104,4101) … 41 regions covered`; new labels from column 4106 appeared on the map |
-| Back and forth across a boundary | `re-entered` each time, no duplicate centre |
-| Restart | `visited: 3 centres, 35 regions covered` loaded before anything was drawn |
-| Two worlds in one session, both directions, via the start menu | each world recorded only its own region; nothing from the title screen's placeholder player |
-| Unused world with only a v1 file | started empty, as designed |
-| G — same world with the DLL removed | 2 labels (the player's region and a city found earlier) against 26 with it; the world list's explored area was unchanged by the mod |
-| Clean exit through the menu | no crash; set flushed |
-| I, partly — two sessions of about 13 and 15 minutes: walking, swimming, a death and revive, repeated map opens, two world switches | no crash, no error in the log. Private memory rose from 1.2 to 1.6 GB while new terrain loaded; not compared against vanilla |
+| Start-up | `RegionReveal active (set up in 6 ms)` to `10 ms`, inside `DllMain` |
+| New world `MARK TEST`, seed 777 — a name with a space, which the previous version refused | stored as `mark test`, file written |
+| Area recorded on spawning | `entered new area (512,512) at cell (32800,32800)`; the area has 3 610 cells, x 32777–32845, y 32773–32834 |
+| A, default zoom — landmark pass | 33 blocks with a landmark in the 64 × 64 window: 32 shown by the mod, 1 already explored, **0 hidden inside the area, 0 shown outside it** |
+| A, zoomed in — point-of-interest pass | 25 points of interest in the window, all 25 shown by the mod, **0 hidden, 0 leaked**; a survey of the whole area found exactly those 25 (four city cells, the rest dungeon-like types with levels) |
+| What the map showed | Durala City with its Pet, Crafting and Adventurer districts; Likuron and Narden Castle, Krorok Palace, Catacombs of Damaion, Varmi and Duradara, Ruins of Duragor and Varsel, Rock of Arurior and Narla, Ikoria, Krokor and Kursel Mountains, Gegor Canyon, Ikorok Valley |
+| Terrain | unchanged: real tiles around the player, placeholders elsewhere |
+| Points of interest after loading | none at the moment the world loaded, all 25 twenty seconds later |
+| Undecided cells within 160 of the player | 21 121 at load, 641 twenty seconds later; none inside the player's area either time |
+| Exit through the menu | clean, no error |
 
-The first C result is the bug fixed in this round; `docs/BEHAVIOUR.md` has the
-cause and the thread evidence behind the fix.
+**Not yet run on this version:** B on screen (the counters showed nothing
+outside the area within the window, but the map was not panned across a
+border), C, G, the 2013-07-02 build, and I.
 
-## Run on 2026-10-03
+## Earlier runs
 
-The area-based version, Release `dinput8.dll` built from this tree. The test
-character was raised to level 60 and made invulnerable by writing its creature
-directly from the test harness, so walking and teleporting between areas did not
-end in deaths; that touches the test save only, never the mod.
+- **2026-10-02, 8 × 8-block version, 2013-07-20.** Region tracking with the map
+  closed was found broken and fixed; a restart restored the history; two worlds
+  in one session stayed separate. A/B against the same world with the DLL
+  removed: 26 labels with it, 2 without — the player's own spot and a city
+  found earlier — so nothing reached the save.
+- **2026-10-03, area version with terrain previews, both builds.** Area
+  tracking, the version 2 conversion and a 16-teleport stress run behaved; the
+  previews themselves were removed afterwards (`docs/MAP_LABELS.md`). That run
+  also exercised, on 2013-07-02, the offsets no signature covers.
 
-**2013-07-20, world `saddsa`:**
-
-| Check | Result |
-|---|---|
-| Offline: `region_test` (63 checks), `signature_test` with all nine signatures on both builds, `Server.exe` refused | pass |
-| v2 history loaded | `visited: converted 1 version 2 regions`, then `1 areas recorded`; the area resolved to 3 389 cells |
-| A — open the map | every label of the area drawn, out to its dotted border |
-| C — teleport into new areas with the map closed | `entered NEW land area …` logged on arrival, the cell appended to the file; re-entering logs `re-entered` and adds nothing |
-| J — previews | built nearest the centre first, about 10 ms of work each in slices of at most 5 ms, 70 to 90 live with the default radius; relief, coastlines and border dots visible |
-| Map closed | every preview released within five seconds; toggling the map repeatedly returned private memory to the same level each time, so nothing leaks |
-| Stress — 16 teleports between areas, map toggled throughout | private memory 1.05 to 1.21 GB, about 1.57 GB of address space in use, no crash |
-| L — exit through the menu | clean, no `CRASH` line, no Windows Error Reporting event |
-
-**2013-07-02, a new character and world `oldbuild` (seed 12345):**
-
-| Check | Result |
-|---|---|
-| Mod loads, all signatures resolve in the live image | `supported build detected; RegionReveal active` |
-| Area recorded on entering the world | `entered NEW land area 532384 at cell (32800,32800) in world 'oldbuild'`, 4 499 cells |
-| A, J — open the map | Ikokor City, Kurkor Palace, the Catacombs of Segor, ruins, palaces and Damalan Forest labelled; 147 previews built in the first 10 s |
-| L — exit through the menu | clean; `map_oldbuild.db` holds 26 `tile` records, all within 3 cells of the player |
-
-This run is what checked the offsets no signature covers — the owner's view cell
-and pan, the area's seed and kind — on the older build.
-
-### What the earlier attempts of this round found
-
-Three failures, each fixed before the runs above:
-
-- **Previews only covered a quarter of a cell.** Built 16 x 16; the map scales
-  tile voxels by a fixed 8 blocks, so a cell needs the full 32 x 32.
-- **Holes in the previewed ground.** The game frees every tile more than 10
-  cells from the view centre each second, previews included, and the mod's list
-  went stale. Previews are now built within 9 at most and the list is checked
-  against the cells on every pass.
-- **Crashes.** Two on exit, in `ntdll`, from the mod's own preview thread taking
-  a `WorldMap` lock the game had already destroyed; and two while walking, the
-  game's own mesh allocation throwing at about 1.75 GB private in a process with
-  a 2 GB address space. Everything now runs on the game thread, previews exist
-  only while the map is open, and building stops when address space runs low.
-  The crash reporter in `src/region_reveal/crash.cpp` is what attributed these.
-
-## Test G is the important one
-
-It is the test that can falsify the central design claim. RegionReveal never
-writes to a map cell — it hands the renderer a copy — so a reloaded world must
-show the map exactly as vanilla exploration left it. If revealed cells survive a
-reload, something is writing through, and the mod is modifying saves after all.
-
-Compare `Save/map_*` before and after by hash to settle it:
-
-```sh
-sha256sum "Save/map_"*        # before playing
-# play with the mod, save, quit
-sha256sum "Save/map_"*        # must be unchanged where no real exploring happened
-```
-
-## Crash reports
-
-If the game crashes with the mod loaded, `RegionReveal.log` ends with a line like
-
-```
-CRASH (unhandled) code C0000005 at Cube.exe!0x5FC2A1, thread 1234, accessing 00000014
-```
-
-followed by the return addresses found on the stack, each as module and address
-rebased to the module's preferred base, so they can be looked up in the
-disassembly directly. Configuring with `-DREGIONREVEAL_CRASHDUMP=ON` also writes
-`RegionReveal_crash.dmp` beside the game for a debugger.
-
-## Instrumenting the open questions
+## Open questions for a debugger
 
 `docs/REVERSE_ENGINEERING.md` lists what static analysis could not settle. These
-need a debugger (x32dbg) rather than the mod:
+need x32dbg rather than the mod:
 
-- Breakpoint `WorldMap::discover` and confirm the coordinates track the local
-  player, not other creatures. This underpins region detection.
-- Watchpoint a cell's `+0x30` byte, walk over it, and confirm the write comes
-  from `discover` alone.
-- Breakpoint the `Database` set call in `0x6033E2` / `0x603645` / `0x603A00` and
-  determine whether chunk cell bytes are what gets written.
-- `WorldMap+0x90..0x9C` was suggested here as a possible current-region field.
-  **That lead is closed:** those fields are written only by the constructor, to
-  `-1`, and by nothing else in the translation unit. A different authoritative
-  source is still needed; see `docs/AUDIT.md`.
+- a write watchpoint on a cell's `+0x10`, to find who fills in points of
+  interest;
+- a breakpoint on `0x5FA4C0`, to see what decides whether a landmark draws for
+  a given cell;
+- the `Database` set calls in `0x605420`, to locate the reveal bit inside a
+  saved `reg` record.
