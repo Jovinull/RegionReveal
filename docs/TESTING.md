@@ -1,8 +1,10 @@
 # Testing
 
-Loading and hooking have been verified in the running game. **Tests A–G have
-not been run** — they need a character walking around a world, which is the one
-thing the automation here cannot do.
+Loading, hooking and the region behaviour have been verified in the running game.
+Tests A, B, C, G and part of I were run on 2026-10-02 by driving the game with
+synthetic input and reading the player's position out of the process; see
+"Run on 2026-10-02" below. D, E and F, and H against a live unsupported build,
+are still open.
 
 Back up `Save/` before any of it.
 
@@ -37,15 +39,42 @@ unattributable later.
 
 | | Scenario | Expected |
 |---|---|---|
-| **A** | Enter a region not visited before, open the map. | Markers already generated in that chunk are visible without walking over them. |
-| **B** | With the map open, look at the adjacent region. | Still dark. Reveal must not spill past the chunk boundary. |
-| **C** | Walk into that adjacent region, reopen the map. | It now reveals; the previous one reverts to only its genuinely explored cells. |
+| **A** | Enter a region not visited before, open the map. | Markers of the 5 x 5 regions around it are visible without walking over them. |
+| **B** | With the map open, look past the survey. | Still dark. Reveal must not spill past two regions from a visited one. |
+| **C** | Walk into a region outside the history **with the map closed**, then open it. | The region is recorded on entry, not on opening the map; its survey is added and the previous regions stay revealed. |
 | **D** | Find a revealed dungeon marker, approach it. | Marker matches a real dungeon. The dungeon is not entered, cleared or flagged complete. |
 | **E** | Same for a boss marker. | Boss is alive, undamaged, not credited as defeated. |
 | **F** | Same for a city. | City renders as it normally would; NPCs, vendors and quests behave as vanilla. |
-| **G** | Save, quit, reopen the world. | **Determine and record what happens.** The design intends nothing to persist, so previously auto-revealed cells should be dark again. If they persist, the no-write assumption is wrong — stop and re-examine `docs/REVERSE_ENGINEERING.md`, "Persistence". |
+| **G** | Quit, reopen the world with and without the DLL. | With it, coverage comes back from `RegionReveal_<world>.visited`. Without it, the map shows only what the player genuinely explored. If mod-revealed markers survive without the DLL, the no-write assumption is wrong — stop and re-examine `docs/REVERSE_ENGINEERING.md`, "Persistence". |
 | **H** | Run the DLL against any other Cube World build. | `RegionReveal.log` reports an unsupported build, no hook is installed, the game runs normally and does not crash. |
 | **I** | Play ~30 minutes crossing several regions, opening the map often. | No crash, no map corruption, no frame-time degradation. |
+
+## Run on 2026-10-02
+
+2013-07-20 build, Release `dinput8.dll` built from this tree, existing world
+`sdaads`. The game was driven with `SendInput`; the player's position was read
+with `ReadProcessMemory` through the same chain the mod uses, located by
+scanning for `cube::WorldMap`'s vftable. `Cube.exe` is `DYNAMIC_BASE` and loaded
+at `0xE60000` that day, so any VA from the docs has to be rebased first.
+
+| Check | Result |
+|---|---|
+| Offline: `region_test`, `signature_test` on both builds, `Server.exe` refused | pass |
+| Mod loads, hook installs, game runs | `supported build detected; RegionReveal active` |
+| A — open the map in a visited region | 24 landmark labels over unexplored ground |
+| C, before the fix — cross into `(4102,4101)` with the map closed | **fail**: nothing recorded until the map was opened |
+| C, after the fix — cross into `(4103,4101)` with the map closed | `visited NEW region (4103,4101) … 36 regions covered` logged on entry, file rewritten with 4 sorted centres; the new region's label appeared on the next map open |
+| C, again, into another storage chunk — `(4104,4101)`, chunk 513 | `visited NEW region (4104,4101) … 41 regions covered`; new labels from column 4106 appeared on the map |
+| Back and forth across a boundary | `re-entered` each time, no duplicate centre |
+| Restart | `visited: 3 centres, 35 regions covered` loaded before anything was drawn |
+| Two worlds in one session, both directions, via the start menu | each world recorded only its own region; nothing from the title screen's placeholder player |
+| Unused world with only a v1 file | started empty, as designed |
+| G — same world with the DLL removed | 2 labels (the player's region and a city found earlier) against 26 with it; the world list's explored area was unchanged by the mod |
+| Clean exit through the menu | no crash; set flushed |
+| I, partly — two sessions of about 13 and 15 minutes: walking, swimming, a death and revive, repeated map opens, two world switches | no crash, no error in the log. Private memory rose from 1.2 to 1.6 GB while new terrain loaded; not compared against vanilla |
+
+The first C result is the bug fixed in this round; `docs/BEHAVIOUR.md` has the
+cause and the thread evidence behind the fix.
 
 ## Test G is the important one
 

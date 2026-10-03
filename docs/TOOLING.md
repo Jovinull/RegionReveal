@@ -34,7 +34,7 @@ than a decompiler session, and the mod needs no memory scanning.
   been validated at runtime yet (see `docs/TESTING.md`), so they are the right
   tools for the *next* stage, not this one. x32dbg in particular is what the open
   questions in `docs/REVERSE_ENGINEERING.md` need.
-- **MinHook** — the mod installs exactly two detours on functions whose stolen
+- **MinHook** — the mod installs exactly one detour on a function whose stolen
   bytes were verified to be position-independent, so `src/hooks.cpp` is ~60 lines
   and carries no third-party licence.
 

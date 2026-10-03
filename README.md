@@ -95,8 +95,6 @@ Back up your `Save/` folder before playing with any mod, this one included.
 
 ## How it works
 
-Two 5-byte detours, both on `cube::WorldMap` methods found by signature:
-
 One 5-byte detour, on `cube::WorldMap::getCell(x, y)`, found by signature. It
 calls the original; if the caller is inside the map draw method and the cell sits
 in a surveyed region, it returns a copy with the reveal bit set. Otherwise the
@@ -109,8 +107,14 @@ travel or progression.
 
 The player's region comes from the local `Creature`, reached by subtracting
 `0x800D44` from the `WorldMap` the detour was called on — no global, no second
-hook. Copies are keyed by cell rather than handed out from a ring, so two live
-pointers can never alias however many the renderer keeps.
+hook. It is checked from the map draw and also from gameplay's own `getCell`
+calls on the game thread — `WorldMap::discover` keeps asking for the cells
+around the player — so a region counts as visited when the player walks into it,
+whether or not the map is open. A region is recorded only once the game has
+revealed the cell the player stands on, which keeps the title screen's
+placeholder player out of the history. Copies are keyed by cell rather than
+handed out from a ring, so two live pointers can never alias however many the
+renderer keeps.
 
 Details and evidence:
 [`docs/REVERSE_ENGINEERING.md`](docs/REVERSE_ENGINEERING.md).
@@ -134,6 +138,13 @@ detour's trampoline is exercised by a startup self-check, region tracking follow
 the player across boundaries, and coverage survives a restart and stays separate
 per world. Cost is around 67 cycles per `getCell`, roughly 1% of one core with
 the map open.
+
+Re-run end to end on the 2013-07-20 build on 2026-10-02, after region tracking
+moved off the map: a region crossed with the map closed is recorded, the new
+landmark is on the map the next time it opens, switching worlds through the start
+menu records nothing in the wrong world, and with the DLL removed the same world
+draws 2 labels against 26 with it, so nothing reached the save. Details in
+[`docs/TESTING.md`](docs/TESTING.md).
 
 ## Known limitations
 

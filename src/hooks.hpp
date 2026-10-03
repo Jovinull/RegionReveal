@@ -8,9 +8,9 @@ namespace rr {
 //
 // The five stolen bytes are copied verbatim into the trampoline, so a target is
 // only safe when its first five bytes form whole, position-independent
-// instructions. Both hooked functions start with `push ebp / mov ebp, esp /
+// instructions. The hooked function starts with `push ebp / mov ebp, esp /
 // push reg / push reg`, which satisfies that, and the byte signature used to
-// find them re-checks those exact bytes before anything is written.
+// find it re-checks those exact bytes before anything is written.
 class InlineHook {
 public:
     ~InlineHook() { remove(); }

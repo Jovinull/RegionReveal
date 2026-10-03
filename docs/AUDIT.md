@@ -138,25 +138,25 @@ withdrawn; see `src/game/landmarks.hpp`.
 | Unsupported build fails closed | PASS | No signature resolves in `Server.exe`; `find_unique` rejects a second match |
 | Stolen bytes relocation-free | PASS | Instruction-level check, both builds |
 | Signatures unique | PASS | Exactly one match per build |
-| Region == map chunk | PASS | Save keys `reg<x>_<y>`; `32768 >> 6 == 512` |
+| Region == map chunk | SUPERSEDED | True of the storage chunk the save keys as `reg<x>_<y>`; the unit that carries one landmark, and that the mod now calls a region, is the 8x8-cell block of one `0x68` record |
 | Primary target externally corroborated | PASS | Qube-Loader offsets resolve only in 2013-07-20; launcher v1.5 gates on its exact size |
-| Persistent visited-region memory | PASS (static) | Bitset plus per-world file; previously FAIL |
-| Never reveals unvisited regions | PASS | The chunk comparison rejects everything outside the tracked region; `otherRegion` counted 128 602 rejections |
+| Persistent visited-region memory | PASS | Observed 2026-10-02: a restart loaded `3 centres, 35 regions`; regions crossed with the map closed are recorded since the fix in `docs/BEHAVIOUR.md` |
+| Never reveals unvisited regions | PASS | Only regions within the 5x5 survey of a visited one; on screen 2026-10-02, the next row of landmarks appeared only after the player entered the region that surveys it |
 | Map cell identified | PASS | `cube::ZoneTile`, via the constructor's vftable write |
-| A/B proves POI reveal | UNVERIFIED | Counters show 38 625 lit from `lit=0`; no side-by-side comparison made |
-| No persistent save mutation | UNVERIFIED | Design writes nothing and `discovered` stayed 13; `reg` blobs never read back |
-| Current player region authoritative | PASS (static) | Read from the local `Creature` via `owner_of(worldMap) + 0x8006D0`; no global, no second hook. Runtime crossing tests still to run |
+| A/B proves POI reveal | PASS | 24 labels with the DLL against 2 without, same world and spot; repeated 2026-10-02 as 26 against 2 |
+| No persistent save mutation | PASS | With the DLL removed after a session, the map shows only genuinely explored landmarks; a world the mod surveyed kept its explored area. `reg` blobs still never decoded |
+| Current player region authoritative | PASS | Read from the local `Creature` via `owner_of(worldMap) + 0x8006D0`, and recorded only once the game has revealed the player's cell; crossings observed 2026-10-02 match a position read independently from outside the process |
 | `discover()` dependency removed | PASS | The hook and its signature are gone; one hook remains |
-| Per-world identity | PASS (static) | World name read from `[WorldMap+0xAC]+0x94`, the same string the game concatenates into `Save/map_<name>.db` |
-| Visited-region storage | PASS (static) | 128 KiB bitset in `RegionReveal_<world>.visited`, atomic replace, fail-closed parse |
+| Per-world identity | PASS | World name read from `[WorldMap+0xAC]+0x94`; two worlds switched in one session kept separate histories |
+| Visited-region storage | PASS | Sorted list of visited centres, format v2, in `RegionReveal_<world>.visited`; atomic replace, fail-closed parse, v1 rejected |
 | Terrain generator identified | PASS | `0x603A00`, generate path at `0x603F32`, writes back at `0x604E3C` (`docs/POI_AND_TERRAIN.md`) |
 | Arbitrary tile generation | **FAIL** | The generate path is guarded on a resident 256x256 terrain array that exists only near the player |
 | Marker pass understood | PASS | Two draw passes; the marker pass gates on the reveal bit alone, which is why the `+0x10` filter was removed |
-| Adjacent region stays hidden | UNVERIFIED | `otherRegion` rises at the boundary — consistent, but never seen on screen |
+| Adjacent region stays hidden | PASS | Seen on screen 2026-10-02: regions three away from every visited one stayed unlabelled until a visit brought them into a survey |
 | City / dungeon / boss separately | UNKNOWN | No POI type field identified |
 | Terrain reveal understood | PARTIAL | Mechanism identified; generation path not found |
-| Performance acceptable | UNMEASURED | 42 M `getCell` calls observed; a cycle counter was added but the scanner deleted that build before it ran |
-| Extended stability | UNVERIFIED | Longest observed run is two minutes |
+| Performance acceptable | PASS | The 2026-08-30 diagnostic sessions measured 26–69 cycles per `getCell` call; the counter brackets the original call and the caller test, not the survey or the shadow copy |
+| Extended stability | PARTIAL | Two sessions of about 13 and 15 minutes on 2026-10-02 with no crash; the 30-minute run in `docs/TESTING.md` test I is still to do |
 | Loader strategy reviewed | PASS | Proxy audited; Qube-Loader and launcher v1.5 both analysed; no collision with either |
 | Documentation consistent | PASS | This round rewrote every contradicted claim |
 | Clean reproducible build | PASS | `cmake -B build -A Win32` builds all targets under `/W4 /WX` |
