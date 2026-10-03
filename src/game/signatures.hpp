@@ -18,16 +18,10 @@ bool module_text(ModuleRange* out);
 // hit is treated as a failure so an unrecognised build can never be hooked.
 std::uint8_t* find_unique(const ModuleRange& range, const char* pattern);
 
-// Signatures were cut from the 2013-07-20 build and verified to match the
-// 2013-07-02 build at a different address; see tools/make_signatures.py.
-extern const char kSigWorldMapGetCell[];
-extern const char kSigMapOverlayDraw[];
-extern const char kSigWorldAreaAt[];
-extern const char kSigWorldTerrainHeight[];
-extern const char kSigVoxelImageCtor[];
-extern const char kSigVoxelImageResize[];
-extern const char kSigVoxelImageBuild[];
-extern const char kSigDotListPushBack[];
-extern const char kSigListClear[];
+// Cut from the 2013-07-20 build by tools/make_signatures.py and verified to
+// match the 2013-07-02 build too, at a different address.
+extern const char kSigWorldMapGetCell[];  // cube::WorldMap::getCell
+extern const char kSigMapOverlayDraw[];   // cube::MapOverlayWidget's draw method
+extern const char kSigWorldAreaAt[];      // cube::World's named-area lookup
 
 }  // namespace cw

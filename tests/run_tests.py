@@ -12,15 +12,12 @@ import subprocess
 import sys
 
 # sha256 -> (label, RVAs in signature_test's order: getCell, overlay draw, area
-# lookup, terrain height, tile image ctor / resize / build, dot push_back, list
-# clear)
+# lookup)
 BUILDS = {
     '84a7a132a84d4282338e7ea45a1940d32066d64e39cbafed8f2418d5a6dc30bf':
-        ('Alpha 2013-07-20 (PRIMARY_TARGET)', '202440', 'c9680', '77e10', '1c5e20', 'e6a20', 'e75c0',
-         'e7870', '201eb0', '6f870'),
+        ('Alpha 2013-07-20 (PRIMARY_TARGET)', '202440', 'c9680', '77e10'),
     'a4eeb3606ad2b82e4c9b3d0db6f9472ffa6e89a4d56084a9114ff1fb3c812699':
-        ('Alpha 2013-07-02', '200ed0', 'c9490', '78330', '1c4860', 'e5cf0', 'e6650',
-         'e6900', '200940', '6fb50'),
+        ('Alpha 2013-07-02', '200ed0', 'c9490', '78330'),
 }
 
 

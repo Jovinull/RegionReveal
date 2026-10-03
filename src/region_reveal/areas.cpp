@@ -1,103 +1,91 @@
 #include "areas.hpp"
 
 #include <algorithm>
+#include <cstring>
 
-#include "../game/world.hpp"
 #include "visited.hpp"
 
 namespace rr {
 
-RevealedAreas::RevealedAreas() { InitializeCriticalSection(&lock_); }
-
-RevealedAreas::~RevealedAreas() { DeleteCriticalSection(&lock_); }
-
-void RevealedAreas::reset(const std::string& world, const std::vector<std::uint32_t>& storedCells) {
-    EnterCriticalSection(&lock_);
-    world_ = world;
-    seeds_.clear();
+void RevealedAreas::reset(const std::vector<std::uint32_t>& storedCells) {
+    areas_.clear();
     pending_ = storedCells;
-    LeaveCriticalSection(&lock_);
     ++generation_;
 }
 
-void RevealedAreas::resolve(cw::WorldMap* map) {
-    EnterCriticalSection(&lock_);
-    std::vector<std::uint32_t> pending;
-    pending.swap(pending_);
-    LeaveCriticalSection(&lock_);
-    if (pending.empty()) return;
-
-    std::vector<std::uint32_t> still;
-    for (const std::uint32_t key : pending) {
-        const cw::Area area = cw::area_at_cell(map, key_x(key), key_y(key));
-        if (area.valid()) {
-            add(area.seed);
+void RevealedAreas::resolve(AreaLookupFn lookup, void* context) {
+    std::size_t kept = 0;
+    for (const std::uint32_t key : pending_) {
+        const cw::AreaLookup found = lookup(context, key_x(key), key_y(key));
+        if (found.known) {
+            add(found.area);
         } else {
-            still.push_back(key);
+            pending_[kept++] = key;
         }
     }
-
-    EnterCriticalSection(&lock_);
-    pending_.insert(pending_.end(), still.begin(), still.end());
-    LeaveCriticalSection(&lock_);
+    pending_.resize(kept);
 }
 
-bool RevealedAreas::contains(std::int32_t seed) const {
-    EnterCriticalSection(&lock_);
-    const bool found = std::binary_search(seeds_.begin(), seeds_.end(), seed);
-    LeaveCriticalSection(&lock_);
-    return found;
+bool RevealedAreas::add(cw::AreaId area) {
+    const auto at = std::lower_bound(areas_.begin(), areas_.end(), area);
+    if (at != areas_.end() && *at == area) return false;
+    areas_.insert(at, area);
+    ++generation_;
+    return true;
 }
 
-bool RevealedAreas::add(std::int32_t seed) {
-    EnterCriticalSection(&lock_);
-    const auto at = std::lower_bound(seeds_.begin(), seeds_.end(), seed);
-    const bool fresh = at == seeds_.end() || *at != seed;
-    if (fresh) seeds_.insert(at, seed);
-    LeaveCriticalSection(&lock_);
-    if (fresh) ++generation_;
-    return fresh;
+bool RevealedAreas::contains(cw::AreaId area) const {
+    return std::binary_search(areas_.begin(), areas_.end(), area);
 }
 
-std::vector<std::int32_t> RevealedAreas::snapshot(std::string* world) const {
-    EnterCriticalSection(&lock_);
-    std::vector<std::int32_t> copy = seeds_;
-    *world = world_;
-    LeaveCriticalSection(&lock_);
-    return copy;
-}
-
-bool RevealWindow::revealed(int x, int y) const {
-    const Buffer& b = buffers_[active_.load(std::memory_order_acquire)];
-    if (!b.valid.load(std::memory_order_relaxed)) return false;
-    const int dx = x - b.x0.load(std::memory_order_relaxed);
-    const int dy = y - b.y0.load(std::memory_order_relaxed);
-    if (dx < 0 || dy < 0 || dx >= kSpan || dy >= kSpan) return false;
-    const int bit = dx * kSpan + dy;
-    return (b.bits[bit >> 5].load(std::memory_order_relaxed) >> (bit & 31)) & 1u;
-}
-
-void RevealWindow::publish(int centreX, int centreY, const std::vector<bool>& cells) {
-    // Writes the buffer readers are not using, then flips. A reader still on the
-    // old one is reading a buffer nobody writes until the next publish.
-    const int next = 1 - active_.load(std::memory_order_relaxed);
-    Buffer& b = buffers_[next];
-    b.x0.store(centreX - kRadius, std::memory_order_relaxed);
-    b.y0.store(centreY - kRadius, std::memory_order_relaxed);
-    for (int w = 0; w < kWords; ++w) {
-        std::uint32_t word = 0;
-        for (int k = 0; k < 32; ++k) {
-            const int bit = w * 32 + k;
-            if (bit < kSpan * kSpan && cells[bit]) word |= 1u << k;
-        }
-        b.bits[w].store(word, std::memory_order_relaxed);
+LabelCells::Slot& LabelCells::slot(int x, int y) {
+    if (slots_.empty()) slots_.resize(kSide * kSide);
+    Slot& s = slots_[(x & (kSide - 1)) * kSide + (y & (kSide - 1))];
+    if (s.epoch != epoch_ || s.x != x || s.y != y) {
+        s.epoch = epoch_;
+        s.x = x;
+        s.y = y;
+        s.state = State::Unasked;
     }
-    b.valid.store(true, std::memory_order_relaxed);
-    active_.store(next, std::memory_order_release);
+    return s;
 }
 
-void RevealWindow::clear() {
-    for (Buffer& b : buffers_) b.valid.store(false, std::memory_order_relaxed);
+bool LabelCells::revealed(int x, int y, std::uint32_t now, const RevealedAreas& areas, AreaLookupFn lookup,
+                          void* context) {
+    Slot& s = slot(x, y);
+    if (s.state != State::Known) {
+        if (s.state == State::Unknown && now - s.checkedAt < kRetryMs) return false;
+        const cw::AreaLookup found = lookup(context, x, y);
+        s.checkedAt = now;
+        if (!found.known) {
+            s.state = State::Unknown;
+            return false;
+        }
+        s.state = State::Known;
+        s.area = found.area;
+        s.memberGeneration = areas.generation() - 1;  // forces the check below
+    }
+    if (s.memberGeneration != areas.generation()) {
+        s.member = areas.contains(s.area);
+        s.memberGeneration = areas.generation();
+    }
+    return s.member;
+}
+
+cw::MapCell* LabelCells::revealed_copy(const cw::MapCell* cell, int x, int y) {
+    Slot& s = slot(x, y);
+    std::memcpy(s.copy, cell, sizeof(s.copy));
+    s.copy[cw::kCellFlags] |= cw::kRevealedBit;
+    return reinterpret_cast<cw::MapCell*>(s.copy);
+}
+
+void LabelCells::clear() {
+    if (++epoch_ == 0) {
+        // Wrapped after four billion worlds: start the slots over rather than
+        // let an old epoch match again.
+        for (Slot& s : slots_) s.epoch = 0;
+        epoch_ = 1;
+    }
 }
 
 }  // namespace rr

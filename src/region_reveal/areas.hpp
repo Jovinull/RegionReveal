@@ -1,86 +1,92 @@
 #pragma once
 
-#include <windows.h>
-
-#include <atomic>
+#include <cstddef>
 #include <cstdint>
-#include <string>
 #include <vector>
 
-namespace cw {
-struct WorldMap;
-}
+#include "../game/cube_world.hpp"
+#include "../game/world.hpp"
 
 namespace rr {
 
-// The areas revealed in the current world, by seed.
+// How an area is looked up: cw::area_of_cell in the game, a fake in the tests.
+using AreaLookupFn = cw::AreaLookup (*)(void* context, int cellX, int cellY);
+
+// The areas revealed in the current world.
 //
-// Filled from the cells the player is recorded as having entered: each cell is
-// looked up in the running game, and only resolves once its area's storage chunk
-// is resident, so a history from far away waits until the player is near it
-// again. Written by the session tracking, snapshotted by the preview engine.
+// Filled from the cells stored in the visited file. Each is looked up in the
+// running game, and only resolves once the game has generated the area centres
+// around it, so a history from far away waits until the player is near again.
 class RevealedAreas {
 public:
-    RevealedAreas();
-    ~RevealedAreas();
-    RevealedAreas(const RevealedAreas&) = delete;
-    RevealedAreas& operator=(const RevealedAreas&) = delete;
+    // A different world: forget every area and queue the stored cells.
+    void reset(const std::vector<std::uint32_t>& storedCells);
 
-    // A new world: forget every seed and queue the stored cells for lookup.
-    void reset(const std::string& world, const std::vector<std::uint32_t>& storedCells);
+    // Looks up the queued cells again; those that resolve become areas.
+    void resolve(AreaLookupFn lookup, void* context);
 
-    // Looks up queued cells whose area has become resident. Game thread.
-    void resolve(cw::WorldMap* map);
+    // Returns true when the area was not revealed yet.
+    bool add(cw::AreaId area);
 
-    bool contains(std::int32_t seed) const;
+    bool contains(cw::AreaId area) const;
+    std::size_t count() const { return areas_.size(); }
+    std::size_t pending() const { return pending_.size(); }
 
-    // Returns true when the seed was new.
-    bool add(std::int32_t seed);
-
-    // The seeds, and the world they belong to - a reader that has already seen
-    // the next world must not apply the previous one's set to it.
-    std::vector<std::int32_t> snapshot(std::string* world) const;
-
-    // Changes whenever the set does, so readers can tell when to recompute.
-    unsigned generation() const { return generation_.load(); }
+    // Changes whenever the set does, so cached answers know to recheck.
+    unsigned generation() const { return generation_; }
 
 private:
-    mutable CRITICAL_SECTION lock_;
-    std::string world_;
-    std::vector<std::int32_t> seeds_;     // sorted
-    std::vector<std::uint32_t> pending_;  // stored cells not yet resolved
-    std::atomic<unsigned> generation_{0};
+    std::vector<cw::AreaId> areas_;       // sorted
+    std::vector<std::uint32_t> pending_;  // stored cell keys not resolved yet
+    unsigned generation_ = 0;
 };
 
-// Which cells around the map's view centre belong to a revealed area, as a
-// bitmap. The map overlay asks once per cell per frame, so the answer has to be
-// a lookup, not an area query: the preview engine computes the bitmap a few
-// rows a frame and publishes it whole, and readers never take a lock.
-class RevealWindow {
+// What the map overlay's label passes are told about each cell.
+//
+// The passes ask for every cell within 32 of the map's centre, twice a frame,
+// so each answer is kept per cell: the cell's area once it is known, and
+// whether that area is revealed. A cell whose area cannot be decided yet is
+// asked again a second later, when the world generator may have caught up.
+//
+// Slots are indexed by the cell's coordinates modulo 128. Any window narrower
+// than that maps its cells to distinct slots, so a copy handed out for a cell
+// stays that cell's copy for the whole frame. Everything here belongs to the
+// game thread.
+class LabelCells {
 public:
-    // Larger than the 32 cells the overlay's label pass reaches, so labels at
-    // the edge of the map are covered while the engine catches up with a pan.
-    static constexpr int kRadius = 40;
-    static constexpr int kSpan = kRadius * 2 + 1;
+    static constexpr int kSide = 128;
+    static constexpr std::uint32_t kRetryMs = 1000;
 
-    bool revealed(int x, int y) const;
+    // Whether (x, y) lies in a revealed area. `now` is GetTickCount().
+    bool revealed(int x, int y, std::uint32_t now, const RevealedAreas& areas, AreaLookupFn lookup,
+                  void* context);
 
-    // Writer side, the preview engine only.
-    void publish(int centreX, int centreY, const std::vector<bool>& cells);
+    // A copy of `cell` with the reveal bit set, taken afresh on every call so
+    // it never goes stale.
+    cw::MapCell* revealed_copy(const cw::MapCell* cell, int x, int y);
+
+    // Forgets every answer: they belong to the previous world.
     void clear();
 
 private:
-    static constexpr int kWords = (kSpan * kSpan + 31) / 32;
+    enum class State : std::uint8_t { Unasked, Unknown, Known };
 
-    struct Buffer {
-        std::atomic<int> x0{0};
-        std::atomic<int> y0{0};
-        std::atomic<bool> valid{false};
-        std::atomic<std::uint32_t> bits[kWords];
+    struct Slot {
+        std::uint32_t epoch = 0;  // never equal to a live epoch, so a fresh slot is empty
+        int x = 0;
+        int y = 0;
+        State state = State::Unasked;
+        bool member = false;
+        std::uint32_t checkedAt = 0;
+        unsigned memberGeneration = 0;
+        cw::AreaId area = 0;
+        std::uint8_t copy[cw::kCellSize] = {};
     };
 
-    Buffer buffers_[2];
-    std::atomic<int> active_{0};
+    Slot& slot(int x, int y);
+
+    std::uint32_t epoch_ = 1;
+    std::vector<Slot> slots_;  // allocated on first use: about 1.3 MB
 };
 
 }  // namespace rr

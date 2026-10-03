@@ -1,9 +1,8 @@
 // Layout of the Cube World Alpha structures RegionReveal touches.
 //
-// Every constant here was recovered statically from Cube.exe and holds for both
-// supported builds; only function addresses differ, which is why those are
-// resolved by signature at runtime instead.
-// See docs/REVERSE_ENGINEERING.md and docs/AUDIT.md for the evidence.
+// Every constant here holds for both supported builds; only function addresses
+// differ between them, which is why those are found by signature at runtime.
+// docs/REVERSE_ENGINEERING.md has the evidence for each one.
 
 #pragma once
 
@@ -11,135 +10,62 @@
 
 namespace cw {
 
-// cube::WorldMap owns a sparse 1024x1024 grid of chunk pointers at +0xB0.
-// A chunk is one region: 64x64 cells of 0x34 bytes at offset 0, followed by
-// 64 objects of 0x68. The save file calls these chunks "reg<x>_<y>", which is
-// where the claim that a chunk is a region comes from.
-inline constexpr int kGridOffset = 0xB0;
-inline constexpr int kGridDim = 1024;
-inline constexpr int kChunkDim = 64;
-inline constexpr int kCellStride = 0x34;
-inline constexpr int kMapDim = kGridDim * kChunkDim;  // 65536 cells per axis
+struct WorldMap;  // cube::WorldMap
+struct MapCell;   // cube::ZoneTile, one cell of the world map
+struct World;     // cube::World
 
-// After the cell array a chunk holds 64 records of 0x68, an 8x8 grid over the
-// chunk's cells. The marker pass reads them; cube::Region builds an identical
-// set at its own +0x14018, from the same constructor.
-inline constexpr int kChunkRecords = kChunkDim * kChunkDim * kCellStride;  // 0x34000
-inline constexpr int kRecordStride = 0x68;
-inline constexpr int kRecordLandmark = 0x18;  // the type the marker pass draws
-
-// A gameplay region is the 8x8 block of cells that one 0x68 record covers:
-// 8 * 256 = 2048 blocks per axis. The record carries the marker type the map's
-// marker pass draws, and runtime probing showed the record changes exactly when
-// this unit changes and not when the cell alone does.
-inline constexpr int kRegionCells = 8;
-inline constexpr int kRegionDim = kMapDim / kRegionCells;  // 8192 regions per axis
-
-// Offsets inside a map cell. The cell is cube::ZoneTile: its constructor
-// writes that class's RTTI vftable.
-//
-// +0x10..0x1F is the cell's point of interest, copied from the world generator:
-// a type byte the label pass tests and draws (1 = city, drawn white) and a level
-// at +0x18 it colours against the player's. It is not terrain - the terrain is
-// the tile image at +0x08, drawn by WorldMap::render whether or not the reveal
-// bit is set; that bit only tints the placeholder drawn where no tile exists.
-inline constexpr int kCellTileBase = 0x04;    // tile's lowest voxel layer, in 8-block units
-inline constexpr int kCellTile = 0x08;        // tile image, or null
-inline constexpr int kCellContent = 0x10;     // point-of-interest type, 0 = none
-inline constexpr int kCellBorderDots = 0x20;  // std::list of {x, y, z} area-border dots
-inline constexpr int kCellTileFade = 0x2C;    // fade-in countdown, 250 when a tile appears
-inline constexpr int kCellFlags = 0x30;       // bit 0 = revealed on the world map
-inline constexpr std::uint8_t kRevealedBit = 0x01;
-inline constexpr std::uint8_t kSavedTileBit = 0x02;  // a tile record exists in the save
-inline constexpr int kTileFadeStart = 250;
-
-// The tile image the map draws for a cell: a 32 x 32 x depth grid of voxels,
-// each the average colour of an 8 x 8 x 8 block cube. RGB, three bytes a voxel
-// at ((z * h + y) * w + x) * 3, with black meaning empty. The map scales voxels
-// by a fixed 8 blocks, so a cell always needs the full 32 x 32.
-inline constexpr int kTileImageSize = 0x60;
-inline constexpr int kTileImageVoxels = 0x30;
-inline constexpr int kTileDim = 32;
-inline constexpr int kBlocksPerVoxel = 8;
-
-// Offsets inside cube::WorldMap beyond the cell grid.
-inline constexpr int kWorldMapRenderer = 0xA4;  // ctor arg 1, handed to every tile image
-inline constexpr int kWorldMapWorld = 0xAC;     // cube::World*, ctor arg 2
-inline constexpr int kWorldMapCellLock = 0x8000D8;
-
-// WorldMap::render draws cells within kMapTileRadius of the view centre - the
-// map overlay passes it as a literal, push 0x10 - but the map data worker frees
-// every tile further than kMapTileKeep from that centre once a second
-// (0x5FBED0, cmp eax, 0xA). So terrain shows within 10 cells, placeholders from
-// there to 16, and coarse per-chunk landscape beyond.
-inline constexpr int kMapTileRadius = 16;
-inline constexpr int kMapTileKeep = 10;
-
-// A named area - "Lands of Asmi", "Damarok Ocean" - as cube::World's area lookup
-// returns it: the nearest of one centre per storage chunk, after warping the
-// position with noise. The map's dotted lines are the borders between areas.
-inline constexpr int kAreaSeed = 0x14;  // name seed; distinct per area and stable
-inline constexpr int kAreaKind = 0x18;  // negative for ocean, named "... Ocean"
-
-// Offsets inside cube::WorldMap.
-inline constexpr int kWorldMapLock = 0x8000C0;         // CRITICAL_SECTION
-inline constexpr int kWorldMapRevealCount = 0x8000BC;  // persisted as key "discovered"
-inline constexpr int kWorldMapOwnerInfo = 0xAC;        // ctor arg 2; carries the world name
-
-// The WorldMap is constructed in place inside its owner, which the map widget
-// also reaches through `widget + 0x160`: `lea ecx, [ebx + 0x800D44]` sits
-// directly before the constructor call at 0x45A5B2. Subtracting gets back from
-// a WorldMap to that owner without touching any global.
-inline constexpr int kOwnerToWorldMap = 0x800D44;
-inline constexpr int kOwnerToLocalPlayer = 0x8006D0;  // -> cube::Creature*
-
-// Where the map is looking: a cell the game updates every frame plus the
-// player's pan in blocks. The map data worker reads the same pair the same way,
-// pan / 256 added to the cell, to decide which tiles to load.
-inline constexpr int kOwnerViewCell = 0x2BC;      // int x, int y
-inline constexpr int kOwnerViewPan = 0x1000E4C;   // float x, float y, in blocks
-
-// cube::Creature. Position is 64-bit fixed point with 16 fractional bits.
-inline constexpr int kPlayerPosX = 0x10;
-inline constexpr int kPlayerPosY = 0x18;
-inline constexpr std::int64_t kPosFractionalDivisor = 65536;
+// cube::WorldMap keeps a sparse 1024 x 1024 grid of storage chunks at +0xB0.
+// A chunk holds 64 x 64 map cells of 0x34 bytes, and a cell spans 256 x 256
+// blocks, so the map is 65536 cells per axis.
+inline constexpr int kGridChunks = 1024;
+inline constexpr int kChunkCells = 64;
+inline constexpr int kMapCells = kGridChunks * kChunkCells;
+inline constexpr int kCellSize = 0x34;
 inline constexpr int kBlocksPerCell = 256;
+inline constexpr int kBlocksPerChunk = kChunkCells * kBlocksPerCell;
 
-// The world name is a std::string at owner-info + 0x94; 0x5FBC90 concatenates
-// "Save/map_" + that + ".db" to reach the map database.
-inline constexpr int kWorldInfoName = 0x94;
+// ZoneTile+0x30: bit 0 set means the cell is revealed on the world map. Both
+// label passes of the map overlay draw a cell's labels only when it is set.
+inline constexpr int kCellFlags = 0x30;
+inline constexpr std::uint8_t kRevealedBit = 0x01;
 
-// MSVC 2012 std::string: inline buffer or heap pointer at +0, size at +0x10,
-// capacity at +0x14. Short strings live in the buffer while capacity < 16.
+// WorldMap+0xAC points at the cube::World it maps. The world's name, which the
+// game turns into "Save/map_<name>.db", is a std::string at World+0x94.
+inline constexpr int kWorldMapWorld = 0xAC;
+inline constexpr int kWorldName = 0x94;
+
+// cube::World's named areas - "Lands of Asmi", "Damarok Ocean" - one centre per
+// storage chunk, kept as a 1024 x 1024 table of pointers indexed [x * 1024 + y]
+// and null until the world generator has produced that chunk's centre. The
+// area lookup's signature embeds this offset, so it is checked in both builds.
+inline constexpr int kWorldAreaCentres = 0x4000BC;
+
+// The WorldMap is constructed in place inside the game controller, which also
+// holds the local player.
+inline constexpr int kOwnerToWorldMap = 0x800D44;
+inline constexpr int kOwnerToLocalPlayer = 0x8006D0;  // cube::Creature*
+
+// cube::Creature position: 64-bit fixed point, 16 fractional bits per block.
+inline constexpr int kCreaturePosX = 0x10;
+inline constexpr int kCreaturePosY = 0x18;
+inline constexpr std::int64_t kPosUnitsPerBlock = 65536;
+
+// MSVC 2012 std::string: an inline buffer or a heap pointer at +0, the size at
+// +0x10 and the capacity at +0x14; the buffer is inline while capacity < 16.
 inline constexpr int kStdStringSize = 0x10;
 inline constexpr int kStdStringCapacity = 0x14;
-inline constexpr std::uint32_t kStdStringSsoCapacity = 16;
+inline constexpr std::uint32_t kStdStringInlineCapacity = 16;
 
-struct WorldMap;
-struct MapCell;
+inline std::uint8_t* bytes_of(void* object) { return static_cast<std::uint8_t*>(object); }
 
-inline int region_of(int cell) { return cell >> 3; }
+inline std::uint8_t* owner_of(WorldMap* map) { return bytes_of(map) - kOwnerToWorldMap; }
 
-inline std::uint8_t* cell_flags(MapCell* cell) {
-    return reinterpret_cast<std::uint8_t*>(cell) + kCellFlags;
+inline bool cell_revealed(const MapCell* cell) {
+    return (reinterpret_cast<const std::uint8_t*>(cell)[kCellFlags] & kRevealedBit) != 0;
 }
 
-inline std::uint8_t* cell_content(MapCell* cell) {
-    return reinterpret_cast<std::uint8_t*>(cell) + kCellContent;
-}
-
-inline void* chunk_at(WorldMap* map, int cx, int cy) {
-    if (cx < 0 || cy < 0 || cx >= kGridDim || cy >= kGridDim) return nullptr;
-    auto** grid = reinterpret_cast<void**>(reinterpret_cast<std::uint8_t*>(map) + kGridOffset);
-    return grid[cx * kGridDim + cy];
-}
-
-inline std::uint8_t* owner_of(WorldMap* map) {
-    return reinterpret_cast<std::uint8_t*>(map) - kOwnerToWorldMap;
-}
-
-// __thiscall with stack arguments; the detour mirrors it using __fastcall,
-// which puts `self` in ECX and leaves the integer arguments on the stack.
+// cube::WorldMap::getCell(x, y): __thiscall, the cell or null when its storage
+// chunk is not loaded.
 using GetCellFn = MapCell*(__thiscall*)(WorldMap*, int x, int y);
 
 }  // namespace cw

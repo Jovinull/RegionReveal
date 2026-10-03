@@ -8,17 +8,22 @@ namespace rr {
 //
 // The five stolen bytes are copied verbatim into the trampoline, so a target is
 // only safe when its first five bytes form whole, position-independent
-// instructions. The hooked function starts with `push ebp / mov ebp, esp /
-// push reg / push reg`, which satisfies that, and the byte signature used to
-// find it re-checks those exact bytes before anything is written.
+// instructions. WorldMap::getCell starts with `push ebp / mov ebp, esp /
+// push ebx / push esi`, which qualifies, and its byte signature pins those
+// exact bytes before anything is written.
+//
+// The patch is not atomic. It is installed from DllMain while Cube.exe is
+// still loading its imports, before the game has started a thread that could
+// be executing those bytes.
 class InlineHook {
 public:
-    ~InlineHook() { remove(); }
-
     bool install(std::uint8_t* target, void* detour);
+
+    // Restores the original bytes. Only safe while no thread can be inside the
+    // detour or the trampoline, i.e. straight after a failed install check.
     void remove();
 
-    // Call this to reach the original function from inside a detour.
+    // Call this to reach the original function from inside the detour.
     template <typename Fn>
     Fn original() const {
         return reinterpret_cast<Fn>(trampoline_);

@@ -6,33 +6,34 @@
 
 namespace rr {
 
-// Where the player has been, kept per world in its own file beside the game.
+// Where the player has been, kept per world in RegionReveal_<world>.visited
+// beside the game.
 //
-// One cell is stored for each named area the player walked into - the cell they
-// were standing on when they entered it. Which area that is, and so what gets
-// revealed, is worked out from the running game: an area is only known while its
-// storage chunk is resident, and the file has to make sense before that. Storing
-// a place rather than an area identity also means the file never depends on how
-// areas are numbered.
+// One cell is stored for each named area the player walked into: the cell they
+// stood on when they entered it. Which area that is gets worked out from the
+// running game, because an area can only be identified once the world
+// generator has produced its surroundings, and the file has to be meaningful
+// before that. Storing a place rather than an area identity also keeps the
+// file independent of how the mod names areas.
 //
-// The game's save is never involved: Cube World persists a storage chunk's cells
-// wholesale, so a reveal bit written into one would be saved, which is exactly
-// what this mod avoids.
+// The game's own save is never involved.
 class VisitedAreas {
 public:
-    // Switches to `world`, loading its file. An empty name closes the set.
+    // Switches to `world`, loading its file. An empty or unusable name closes
+    // the set, so nothing is recorded on the title screen.
     void open(const std::string& world);
 
     // Records a cell the player stood on when entering an area. Returns true
-    // when it was not already stored, which is also the only thing that makes
-    // the set dirty.
+    // when it was not stored already.
     bool add(int cellX, int cellY);
 
-    // Writes the cells through a temporary and a replacing rename.
+    // Writes the set if it changed, through a temporary file and a replacing
+    // rename so an interrupted write cannot damage the previous copy.
     void flush();
 
     const std::string& world() const { return world_; }
-    // Sorted packed cell keys; see cell_key().
+
+    // Sorted cell keys; see cell_key().
     const std::vector<std::uint32_t>& cells() const { return cells_; }
 
 private:
@@ -43,8 +44,11 @@ private:
     bool dirty_ = false;
 };
 
-// Packs a map cell coordinate pair; both axes are below 65536.
-std::uint32_t cell_key(int x, int y);
+// Packs a map cell into a key that sorts by x, then y. Both axes are below
+// 65536.
+inline std::uint32_t cell_key(int x, int y) {
+    return (static_cast<std::uint32_t>(x) << 16) | static_cast<std::uint32_t>(y);
+}
 inline int key_x(std::uint32_t key) { return static_cast<int>(key >> 16); }
 inline int key_y(std::uint32_t key) { return static_cast<int>(key & 0xFFFF); }
 

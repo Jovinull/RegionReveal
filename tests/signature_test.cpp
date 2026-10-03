@@ -3,7 +3,7 @@
 // This exercises the one part of the mod that can be verified without running
 // the game: that each pattern resolves to exactly one address, in every build
 // we claim to support, and that it is the address recorded in
-// docs/REVERSE_ENGINEERING.md.
+// docs/TARGET_BUILD.md.
 //
 //   signature_test <Cube.exe> <RVA> ...
 //
@@ -79,12 +79,6 @@ const Signature kSignatures[] = {
     {"WorldMap::getCell", cw::kSigWorldMapGetCell},
     {"MapOverlayWidget::draw", cw::kSigMapOverlayDraw},
     {"World area lookup", cw::kSigWorldAreaAt},
-    {"World terrain height", cw::kSigWorldTerrainHeight},
-    {"tile image ctor", cw::kSigVoxelImageCtor},
-    {"tile image resize", cw::kSigVoxelImageResize},
-    {"tile image build", cw::kSigVoxelImageBuild},
-    {"border dot push_back", cw::kSigDotListPushBack},
-    {"std::list clear", cw::kSigListClear},
 };
 constexpr int kCount = static_cast<int>(sizeof(kSignatures) / sizeof(kSignatures[0]));
 

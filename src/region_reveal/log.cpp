@@ -5,18 +5,16 @@
 #include <cstdarg>
 #include <cstdio>
 
+#include "paths.hpp"
+
 namespace rr {
 
 void log_line(const char* message) {
-    wchar_t path[MAX_PATH]{};
-    if (!GetModuleFileNameW(nullptr, path, MAX_PATH)) return;
-
-    wchar_t* slash = wcsrchr(path, L'\\');
-    if (!slash) return;
-    wcscpy_s(slash + 1, MAX_PATH - (slash + 1 - path), L"RegionReveal.log");
+    static const std::wstring path = beside_game(L"RegionReveal.log");
+    if (path.empty()) return;
 
     FILE* file = nullptr;
-    if (_wfopen_s(&file, path, L"a") != 0 || !file) return;
+    if (_wfopen_s(&file, path.c_str(), L"a") != 0 || !file) return;
 
     SYSTEMTIME now{};
     GetLocalTime(&now);

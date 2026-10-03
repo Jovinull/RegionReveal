@@ -19,46 +19,19 @@ const char kSigMapOverlayDraw[] =
     "33 C5 89 45 F0 53 56 57 50 8D 45 F4 64 A3 00 00 00 00 8B D9 89 9D A0 FC FF FF C7 85 "
     "7C FC FF FF 00 00 00 00";
 
-// cube::World area lookup: the named area a block position belongs to.
+// Runs on into the loop over the area-centre table, so it also holds the
+// table's base index (add ebx, 0x10002F, i.e. World+0x4000BC) and its bounds.
 const char kSigWorldAreaAt[] =
     "55 8B EC 83 EC 34 A1 ?? ?? ?? ?? 33 C5 89 45 FC 53 56 57 89 4D EC 8B 75 08 8B 7D 0C "
     "8D 86 00 C0 FF FF 99 81 E2 FF 3F 00 00 03 C2 C1 F8 0E 89 45 F0 8D 87 00 C0 FF FF 99 "
-    "81 E2 FF 3F 00 00 03 C2";
-
-// cube::World terrain height at a block position, from noise alone - it needs
-// no generated zone, which is what makes a preview possible.
-const char kSigWorldTerrainHeight[] =
-    "55 8B EC 83 E4 C0 81 EC 34 01 00 00 A1 ?? ?? ?? ?? 33 C4 89 84 24 30 01 00 00 53 56 "
-    "8B 75 08 57 8B 7D 0C 66 0F 6E C7 F3 0F E6 C0 8B D9 66 0F 28 D0 F2 0F 59 15 ?? ?? ?? "
-    "?? F2 0F 11 44 24 70";
-
-// The tile image the map draws for a cell: constructor, resize, mesh build.
-const char kSigVoxelImageCtor[] =
-    "55 8B EC 6A FF 68 ?? ?? ?? ?? 64 A1 00 00 00 00 50 51 56 57 A1 ?? ?? ?? ?? 33 C5 50 "
-    "8D 45 F4 64 A3 00 00 00 00 8B F9 89 7D F0 68 ?? ?? ?? ?? 68 ?? ?? ?? ?? 6A 03 6A 0C "
-    "8D 47 04 50";
-
-const char kSigVoxelImageResize[] =
-    "55 8B EC 8B 45 08 56 8B F1 57 8B 7D 10 89 46 44 8B 45 0C 89 46 48 8B 46 30 89 7E 4C "
-    "85 C0 74 10 50 E8 ?? ?? ?? ?? 83 C4 04 C7 46 30 00 00 00 00 8B 4E 44 85 C9 7E 46 8B "
-    "46 48 85 C0 7E 3F";
-
-const char kSigVoxelImageBuild[] =
-    "55 8B EC 6A FF 68 ?? ?? ?? ?? 64 A1 00 00 00 00 50 81 EC F4 0B 00 00 A1 ?? ?? ?? ?? "
-    "33 C5 89 45 F0 53 56 57 50 8D 45 F4 64 A3 00 00 00 00 8B D9 33 C9 33 D2 89 95 0C F4 "
-    "FF FF 89 8D 10 F4 FF FF";
-
-// std::list<border dot>::push_back, as the tile loader uses it on a cell's +0x20.
-const char kSigDotListPushBack[] =
-    "55 8B EC 56 57 FF 75 08 8B F1 8B 3E FF 77 04 57 E8 ?? ?? ?? ?? 8B D0 8B 46 04 B9 CB "
-    "CC CC 0C 2B C8 83 F9 01 73 0B 68 ?? ?? ?? ?? FF 15 ?? ?? ?? ?? 40 89 46 04 89 57 04 "
-    "8B 42 04 5F 89 10 5E 5D";
-
-// std::list clear. One copy serves every trivially destructible element type.
-const char kSigListClear[] =
-    "57 8B F9 8B 17 8B 02 89 12 8B 17 89 52 04 C7 47 04 00 00 00 00 3B 07 74 19 56 8D 9B "
-    "00 00 00 00 8B 30 50 E8 ?? ?? ?? ?? 83 C4 04 8B C6 3B 37 75 EF 5E 5F C3 CC CC CC CC "
-    "CC CC CC CC CC CC CC CC";
+    "81 E2 FF 3F 00 00 03 C2 C1 F8 0E 89 45 DC 8D 86 00 40 00 00 99 81 E2 FF 3F 00 00 57 "
+    "8D 1C 02 8D 87 00 40 00 00 99 81 E2 FF 3F 00 00 03 C2 C1 F8 0E 89 45 E8 56 8D 45 F4 "
+    "C1 FB 0E 50 89 5D D4 E8 ?? ?? ?? ?? 66 0F 6E C6 0F 5B C0 33 C9 F3 0F 58 45 F4 89 4D "
+    "E0 89 4D E4 F3 0F 2C C0 66 0F 6E C7 0F 5B C0 89 45 D8 F3 0F 58 45 F8 F3 0F 2C C0 89 "
+    "45 CC 8B 45 F0 3B C3 0F 8F BD 00 00 00 8B 55 EC 8B 7D E8 8B D8 C1 E3 0A 81 C3 2F 00 "
+    "10 00 EB 08 8D A4 24 00 00 00 00 90 8B 75 DC 3B F7 0F 8F 84 00 00 00 EB 03 8D 49 00 "
+    "85 C0 78 76 85 F6 78 72 81 FB 2F 00 20 00 7D 6A 81 FE 00 04 00 00 7D 62 8D 04 33 8B "
+    "3C 82 85 FF 74 52 8B 45 CC 99 0F A4 C2 10 83 EC 08 8B CC";
 
 namespace {
 
