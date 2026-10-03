@@ -18,6 +18,13 @@ from cwtool import Image
 TARGETS = [
     (0x602440, 'kSigWorldMapGetCell', 'cube::WorldMap::getCell(int,int)'),
     (0x4C9680, 'kSigMapOverlayDraw', 'cube::MapOverlayWidget virtual slot 1 (draw)'),
+    (0x477E10, 'kSigWorldAreaAt', 'cube::World area lookup (block x, block y)'),
+    (0x5C5E20, 'kSigWorldTerrainHeight', 'cube::World terrain height (block x, block y, zone)'),
+    (0x4E6A20, 'kSigVoxelImageCtor', 'tile image constructor (renderer, flag)'),
+    (0x4E75C0, 'kSigVoxelImageResize', 'tile image resize (w, h, d)'),
+    (0x4E7870, 'kSigVoxelImageBuild', 'tile image mesh build'),
+    (0x601EB0, 'kSigDotListPushBack', 'std::list<border dot>::push_back'),
+    (0x46F870, 'kSigListClear', 'std::list clear (folded across element types)'),
 ]
 
 
@@ -26,10 +33,12 @@ def cut(img, va, nbytes):
     keep = bytearray(b'\x01' * len(raw))
     lo = img.base
     hi = img.base + img.pe.OPTIONAL_HEADER.SizeOfImage
+    end = 0
     for ins in img.md.disasm(bytes(raw), va):
         off = ins.address - va
         if off + ins.size > len(raw):
             break
+        end = off + ins.size
         if ins.mnemonic in ('call', 'jmp') and ins.size == 5 and raw[off] in (0xE8, 0xE9):
             keep[off + 1:off + 5] = b'\x00' * 4
             continue
@@ -37,7 +46,9 @@ def cut(img, va, nbytes):
             word = int.from_bytes(raw[off + k:off + k + 4], 'little')
             if lo <= word < hi:
                 keep[off + k:off + k + 4] = b'\x00' * 4
-    return bytes(raw), bytes(keep)
+    # Stop on an instruction boundary: a cut through the middle of an
+    # instruction can leave part of an absolute address unwildcarded.
+    return bytes(raw[:end]), bytes(keep[:end])
 
 
 def render(raw, keep):
