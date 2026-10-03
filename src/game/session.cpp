@@ -53,14 +53,14 @@ bool readable(const void* address, std::size_t size) {
     return wanted + size <= end;
 }
 
-Region local_player_region(WorldMap* map) {
+Cell local_player_cell(WorldMap* map) {
     if (!map) return {};
 
     std::uint8_t* player = nullptr;
     if (!read(owner_of(map) + kOwnerToLocalPlayer, &player)) return {};
 
-    // Not populated on the title screen, and a live Creature has its vftable in
-    // the image, so a pointer that fails either test is not a player.
+    // A live Creature has its vftable in the image, so a pointer that fails
+    // either test is not a player.
     const void* vftable = nullptr;
     if (!read(player, &vftable) || !in_module(vftable)) return {};
 
@@ -68,8 +68,8 @@ Region local_player_region(WorldMap* map) {
     std::int64_t y = 0;
     if (!read(player + kPlayerPosX, &x) || !read(player + kPlayerPosY, &y)) return {};
 
-    Region region{region_of(position_to_cell(x)), region_of(position_to_cell(y))};
-    return region.valid() ? region : Region{};
+    Cell cell{position_to_cell(x), position_to_cell(y)};
+    return cell.valid() ? cell : Cell{};
 }
 
 // The HUD shows the current area as two attribute strings, and the game caches

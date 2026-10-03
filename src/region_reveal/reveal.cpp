@@ -3,6 +3,7 @@
 #include <windows.h>
 #include <intrin.h>
 
+#include <atomic>
 #include <climits>
 #include <cstdio>
 #include <cstring>
@@ -26,6 +27,13 @@ bool g_lock_ready = false;
 
 cw::Region g_region;
 DWORD g_checked = 0;
+
+// The thread that owns everything above. The map renderer and WorldMap::discover
+// - which gameplay keeps calling with the local player's position - both run on
+// it, while getCell's other callers are worker threads. Tracking only on this
+// thread keeps every read and write of the visited set on one thread, so the
+// detour still needs no lock.
+std::atomic<DWORD> g_game_thread{0};
 
 // Bounds of cube::MapOverlayWidget's draw method. Cells are only reported as
 // revealed to callers inside this range, so gameplay code asking the same
@@ -139,7 +147,7 @@ private:
 
 ShadowCache g_shadows;
 
-// Everything here runs on the render thread only, which is what makes the
+// Everything here runs on the game thread only, which is what makes the
 // unlocked reads in the detour safe; the lock exists for the shutdown flush.
 #ifdef REGIONREVEAL_DIAGNOSTICS
 // Logs a line whenever any candidate granularity changes, so walking until the
@@ -235,8 +243,22 @@ void refresh_session(cw::WorldMap* map) {
         g_shadows.reset();
     }
 
-    const cw::Region region = cw::local_player_region(map);
-    if (!region.valid() || region == g_region) return;
+    // The title screen runs a live world with a player standing at a placeholder
+    // position, but it has no name, and there is nothing to record without one.
+    if (g_visited.world().empty()) return;
+
+    const cw::Cell here = cw::local_player_cell(map);
+    const cw::Region region = here.region();
+    if (!here.valid() || !region.valid() || region == g_region) return;
+
+    // Proof the player is really standing there: gameplay keeps revealing the
+    // cells around the local player through WorldMap::discover. Nothing
+    // guarantees a loading world's name and the player's position change in the
+    // same frame, and a name paired with the title screen's placeholder position
+    // would record a region the player never entered. Read through the
+    // trampoline, so this is the real cell and not a shadow.
+    cw::MapCell* cell = g_get_cell.original<cw::GetCellFn>()(map, here.x, here.y);
+    if (!cell || !(*cw::cell_flags(cell) & cw::kRevealedBit)) return;
 
     g_region = region;
     g_shadows.reset();
@@ -272,7 +294,22 @@ cw::MapCell* __fastcall get_cell_detour(cw::WorldMap* self, void*, int x, int y)
         report();
     }
 #endif
-    if (!cell || !rendering) return cell;
+    if (!rendering) {
+        // A region counts as visited when the player walks into it, not when
+        // the map happens to be open there. Tracking only from the renderer
+        // skipped every region crossed with the map closed, so it also runs
+        // here, for gameplay calls on the game thread; refresh_session's own
+        // rate limit keeps that to one pointer-chain read every 250 ms.
+        if (GetCurrentThreadId() == g_game_thread.load(std::memory_order_relaxed)) {
+            refresh_session(self);
+        }
+        return cell;
+    }
+
+    // The renderer is on the game thread by definition, which also covers a
+    // load path where nothing told us that thread earlier.
+    g_game_thread.store(GetCurrentThreadId(), std::memory_order_relaxed);
+    if (!cell) return cell;
 
     refresh_session(self);
 
@@ -328,6 +365,10 @@ std::uint8_t* end_of_function(std::uint8_t* begin, std::uint8_t* limit) {
 }
 
 }  // namespace
+
+void adopt_game_thread(unsigned long thread) {
+    g_game_thread.store(thread, std::memory_order_relaxed);
+}
 
 bool initialize() {
     cw::ModuleRange text{};

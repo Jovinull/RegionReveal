@@ -28,6 +28,10 @@ BOOL APIENTRY DllMain(HMODULE module, DWORD reason, LPVOID) {
             // Forwarding has to be ready before the game's first call; failing
             // here would leave the game without input, so refuse to load.
             if (!rr::proxy_attach()) return FALSE;
+            // Pulled in by Cube.exe's import table, so this runs on the game's
+            // main thread before its entry point. Injection runs DllMain on a
+            // remote thread instead, so only the proxy can say this.
+            rr::adopt_game_thread(GetCurrentThreadId());
 #endif
             // Signature scanning walks megabytes of .text, which is far more
             // than belongs under the loader lock.
