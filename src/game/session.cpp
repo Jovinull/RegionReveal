@@ -76,8 +76,18 @@ Region local_player_region(WorldMap* map) {
 // the pair in globals so it can notice when they change (0x494355, 0x49436E).
 // Reading them is diagnostic only: whichever coordinate unit changes at the same
 // moment as these strings is the unit the player calls a region.
+//
+// These are 2013-07-20 addresses at the preferred ImageBase. Cube.exe is built
+// with DYNAMIC_BASE and does get relocated - 0xE60000 was observed - so they are
+// rebased before use; read unrebased, they pointed at unrelated memory, which is
+// why every probe logged the name globals as zeros.
 constexpr std::uintptr_t kLandscapeName = 0x0076B104;
 constexpr std::uintptr_t kLandscapeDetail = 0x0076B11C;
+constexpr std::uintptr_t kPreferredImageBase = 0x00400000;
+
+std::uintptr_t rebase(std::uintptr_t va) {
+    return va - kPreferredImageBase + reinterpret_cast<std::uintptr_t>(GetModuleHandleW(nullptr));
+}
 
 std::string read_msvc_string(std::uintptr_t at) {
     auto* text = reinterpret_cast<std::uint8_t*>(at);
@@ -138,15 +148,15 @@ Probe probe(WorldMap* map) {
 
     out.record = record;
     std::memcpy(out.field, record, sizeof(out.field));
-    out.landscape = read_msvc_string(kLandscapeName);
-    out.detail = read_msvc_string(kLandscapeDetail);
-    if (readable(reinterpret_cast<const void*>(kLandscapeName), sizeof(out.nameRaw))) {
-        std::memcpy(out.nameRaw, reinterpret_cast<const void*>(kLandscapeName),
-                    sizeof(out.nameRaw));
+    const auto* name = reinterpret_cast<const void*>(rebase(kLandscapeName));
+    const auto* detail = reinterpret_cast<const void*>(rebase(kLandscapeDetail));
+    out.landscape = read_msvc_string(rebase(kLandscapeName));
+    out.detail = read_msvc_string(rebase(kLandscapeDetail));
+    if (readable(name, sizeof(out.nameRaw))) {
+        std::memcpy(out.nameRaw, name, sizeof(out.nameRaw));
     }
-    if (readable(reinterpret_cast<const void*>(kLandscapeDetail), sizeof(out.detailRaw))) {
-        std::memcpy(out.detailRaw, reinterpret_cast<const void*>(kLandscapeDetail),
-                    sizeof(out.detailRaw));
+    if (readable(detail, sizeof(out.detailRaw))) {
+        std::memcpy(out.detailRaw, detail, sizeof(out.detailRaw));
     }
     return out;
 }
