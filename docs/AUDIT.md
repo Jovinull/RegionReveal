@@ -3,7 +3,16 @@
 A round of falsification rather than feature work. A claim only reaches
 CONFIRMED here when an attempt to disprove it failed.
 
-## What this round changed about earlier claims
+## What the 2026-10-03 round changed
+
+| Earlier claim | Verdict now |
+|---|---|
+| "The pass at `0x4C9831` is the terrain pass" | **Wrong.** It draws a cell's point of interest, a label. Terrain is drawn by `WorldMap::render` (`0x5FC1B0`) from the tile image at `ZoneTile+0x08`, whether or not the reveal bit is set. |
+| "Revealing terrain means making the game generate, and save, a tile per cell" | **Wrong.** The map draws any tile image attached to a cell. The world generator's height function (`0x5C5E20`) is analytic, so the mod builds a preview from it with the game's own tile code and attaches it in memory; nothing is saved. |
+| "A region is the 8 x 8-cell block of one `0x68` record" | **True of the record, not of what the map borders.** The dotted lines bound named areas, a Voronoi of one centre per storage chunk (`0x477E10`). The reveal unit is now the area. |
+| "`ZoneTile+0x10` is unknown" | **Resolved.** Point-of-interest type byte; `+0x18` is its level. |
+
+## What the 2026-08 round changed about earlier claims
 
 | Earlier claim | Verdict now |
 |---|---|
@@ -78,33 +87,26 @@ CONFIRMED here when an attempt to disprove it failed.
 - **Who writes `ZoneTile+0x10`.** A linear sweep of `.text` desynchronised and
   produced only false hits inside CRT code; the scan was discarded rather than
   reported. Needs recursive descent or a write watchpoint.
-- **An authoritative current-region source.** The `+0x90` lead is dead, so the
-  `discover` hook stays because nothing better has been proven.
+- ~~An authoritative current-region source.~~ **Resolved:** the local
+  `Creature` through `owner + 0x8006D0`, and the area from `cube::World`'s own
+  lookup; the `discover` hook is gone.
 
 ## Terrain: root-cause status
 
-The requirement has two halves and only one is addressed today.
+Resolved on 2026-10-03. What the 2026-08 round wrote here was built on two
+misreadings, both corrected in `docs/POI_AND_TERRAIN.md`:
 
-**A — reveal POIs and markers.** The mod shadows the reveal bit for cells whose
-`+0x10` is non-zero. Live counters show 38 625 cells lit across the session,
-roughly 25 per redraw, from a state where `lit = 0`.
+- the pass gated on `+0x10` draws labels, not ground, so "the renderer skips a
+  cell when `+0x10` is zero" was never about terrain;
+- the map draws a cell's tile image whenever one is attached, revealed or not.
 
-**B — reveal the region's terrain.** Not solved, and **not proven impossible**.
-What is established:
-
-- a map cell's terrain is a 32x32 image stored as `tile<x>_<y>`;
-- only 57 such records existed after the session, against 4096 cells per region;
-- the renderer skips a cell entirely when `+0x10` is zero.
-
-Terrain is therefore not a flag waiting to be flipped — the per-cell image has to
-exist. That puts B at **Result B**, not Result C: plausibly reachable by making
-the game generate those tiles, at a cost nobody has measured, and with a side
-effect already visible in the data — generated tiles get written to
-`Save/map_*.db`, so this route would mutate the save. Calling it impossible would
-run past the evidence; calling it cheap would too.
-
-The experiment that settles it: locate the function that produces a `tile` record
-and determine whether it can run for an arbitrary cell with no player present.
+So the ground of an area needs a tile per cell, not a bit per cell, and the
+game's own generator still cannot make one without a resident zone. What it does
+not need is the game's generator: the height function is analytic, the tile
+image class is callable, and an image attached in memory is drawn and later
+freed by the game like any other. The cost is memory, about 230 KB a
+preview in a process near its address-space limit, which is why previews are
+built only near the map's centre and only while the map is open.
 
 ## Marker reveal, proven side by side
 
@@ -137,11 +139,12 @@ withdrawn; see `src/game/landmarks.hpp`.
 | Secondary build detected | PASS | 2013-07-02, resolved in the live mapped image |
 | Unsupported build fails closed | PASS | No signature resolves in `Server.exe`; `find_unique` rejects a second match |
 | Stolen bytes relocation-free | PASS | Instruction-level check, both builds |
-| Signatures unique | PASS | Exactly one match per build |
+| Signatures unique | PASS | Exactly one match per build, all nine signatures |
 | Region == map chunk | SUPERSEDED | True of the storage chunk the save keys as `reg<x>_<y>`; the unit that carries one landmark, and that the mod now calls a region, is the 8x8-cell block of one `0x68` record |
 | Primary target externally corroborated | PASS | Qube-Loader offsets resolve only in 2013-07-20; launcher v1.5 gates on its exact size |
-| Persistent visited-region memory | PASS | Observed 2026-10-02: a restart loaded `3 centres, 35 regions`; regions crossed with the map closed are recorded since the fix in `docs/BEHAVIOUR.md` |
-| Never reveals unvisited regions | PASS | Only regions within the 5x5 survey of a visited one; on screen 2026-10-02, the next row of landmarks appeared only after the player entered the region that surveys it |
+| Persistent visited-area memory | PASS | Format v3, one cell per area entered; observed 2026-10-03 converting a v2 history and recording areas on entry. The region version was observed across a restart on 2026-10-02 |
+| Never reveals unvisited areas | PASS by construction | Only cells whose area lookup returns a recorded seed are reported revealed. Seen on screen for the region version on 2026-10-02; not yet checked on screen across an area border |
+| Whole area revealed on entry | PASS | 2026-10-03, both builds: one entry revealed 3 389 cells of an area on 2013-07-20 and 4 499 on 2013-07-02, labels drawn to the dotted border |
 | Map cell identified | PASS | `cube::ZoneTile`, via the constructor's vftable write |
 | A/B proves POI reveal | PASS | 24 labels with the DLL against 2 without, same world and spot; repeated 2026-10-02 as 26 against 2 |
 | No persistent save mutation | PASS | With the DLL removed after a session, the map shows only genuinely explored landmarks; a world the mod surveyed kept its explored area. `reg` blobs still never decoded |
@@ -150,13 +153,16 @@ withdrawn; see `src/game/landmarks.hpp`.
 | Per-world identity | PASS | World name read from `[WorldMap+0xAC]+0x94`; two worlds switched in one session kept separate histories |
 | Visited-region storage | PASS | Sorted list of visited centres, format v2, in `RegionReveal_<world>.visited`; atomic replace, fail-closed parse, v1 rejected |
 | Terrain generator identified | PASS | `0x603A00`, generate path at `0x603F32`, writes back at `0x604E3C` (`docs/POI_AND_TERRAIN.md`) |
-| Arbitrary tile generation | **FAIL** | The generate path is guarded on a resident 256x256 terrain array that exists only near the player |
+| Arbitrary tile generation by the game | **FAIL**, worked around | The game's generator needs a resident zone, which exists only near the player; the mod builds previews from the analytic height function instead |
+| Terrain of a revealed area shown | PASS, near the map's centre | Previews with real relief, water and border dots, 6 cells around the view centre by default; observed on both builds 2026-10-03 |
+| Previews never saved | PASS | After a session with more than 150 previews on 2013-07-02, `map_oldbuild.db` held 26 `tile` records, all within 3 cells of the player |
 | Marker pass understood | PASS | Two draw passes; the marker pass gates on the reveal bit alone, which is why the `+0x10` filter was removed |
 | Adjacent region stays hidden | PASS | Seen on screen 2026-10-02: regions three away from every visited one stayed unlabelled until a visit brought them into a survey |
-| City / dungeon / boss separately | UNKNOWN | No POI type field identified |
-| Terrain reveal understood | PARTIAL | Mechanism identified; generation path not found |
-| Performance acceptable | PASS | The 2026-08-30 diagnostic sessions measured 26–69 cycles per `getCell` call; the counter brackets the original call and the caller test, not the survey or the shadow copy |
-| Extended stability | PARTIAL | Two sessions of about 13 and 15 minutes on 2026-10-02 with no crash; the 30-minute run in `docs/TESTING.md` test I is still to do |
+| City / dungeon / boss separately | UNKNOWN | Point-of-interest type 1 is a city and four landmark values are pinned; dungeon and boss are not separated |
+| Terrain reveal understood | PASS | Tile image, loader, zone manager and unloader traced; `docs/POI_AND_TERRAIN.md` |
+| Performance acceptable | PASS | 26–69 cycles per `getCell` call measured 2026-08-30; previews cost about 10 ms of work each, in slices of at most 5 ms a frame, and only while the map is open |
+| Memory within the 32-bit process | PASS, guarded | About 230 KB per preview; building pauses under 400 MB of free address space. A 16-teleport stress run stayed between 1.05 and 1.21 GB private |
+| Extended stability | PARTIAL | Sessions of 13 and 15 minutes on 2026-10-02 and the 2026-10-03 stress run without a crash, after fixing the four crashes in `docs/TESTING.md`; the 30-minute run of test I is still to do |
 | Loader strategy reviewed | PASS | Proxy audited; Qube-Loader and launcher v1.5 both analysed; no collision with either |
 | Documentation consistent | PASS | This round rewrote every contradicted claim |
 | Clean reproducible build | PASS | `cmake -B build -A Win32` builds all targets under `/W4 /WX` |

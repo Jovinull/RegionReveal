@@ -30,10 +30,11 @@ than a decompiler session, and the mod needs no memory scanning.
   reproducible in the repo rather than trapped in a project database. A
   decompiler becomes worthwhile the moment someone wants the *contents* of the
   6650-byte draw function.
-- **x32dbg, ReClass.NET, Cheat Engine** — all dynamic. Nothing in this repo has
-  been validated at runtime yet (see `docs/TESTING.md`), so they are the right
-  tools for the *next* stage, not this one. x32dbg in particular is what the open
-  questions in `docs/REVERSE_ENGINEERING.md` need.
+- **x32dbg, ReClass.NET, Cheat Engine** — all dynamic. The runtime checks in
+  `docs/TESTING.md` were done with the mod's own log, a small `SendInput` and
+  `ReadProcessMemory` harness kept outside the repo, and the crash reporter
+  below. x32dbg is still what the open questions in
+  `docs/REVERSE_ENGINEERING.md` need.
 - **MinHook** — the mod installs exactly one detour on a function whose stolen
   bytes were verified to be position-independent, so `src/hooks.cpp` is ~60 lines
   and carries no third-party licence.
@@ -81,8 +82,14 @@ because the game is PE32.
 Then:
 
 ```sh
-python tests/run_tests.py build/Release/signature_test.exe "<game>/Cube.exe"
+build/Release/region_test.exe
+python tests/run_tests.py build/Release/signature_test.exe "<game>/Cube.exe" ["<other game>/Cube.exe"]
 ```
+
+`-DREGIONREVEAL_CRASHDUMP=ON` builds the mod with a vectored handler that also
+writes `RegionReveal_crash.dmp` beside the game when it crashes; without it, a
+crash still leaves a `CRASH` line with module offsets and a stack walk in
+`RegionReveal.log`.
 
 ### Antivirus
 
@@ -110,7 +117,7 @@ a malicious hook does. What separates them is intent and provenance, and a
 scanner cannot see either.
 
 What the DLL actually links against is checkable, and is the argument to make
-when whitelisting it: `kernel32.dll` only, 84 imports, nothing from `ws2_32`,
+when whitelisting it: `kernel32.dll` only, 93 imports, nothing from `ws2_32`,
 `wininet` or `winhttp`, no `CreateProcess`, no registry, no `OpenProcess` or
 `WriteProcessMemory`.
 

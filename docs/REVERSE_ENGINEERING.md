@@ -50,15 +50,15 @@ vftable for `.?AVWorldMap@cube@@`.
 | `0x00` | vftable `0x71DFCC` | ctor writes it |
 | `0x90`–`0x9C` | four ints, ctor sets each to `-1` | ctor; purpose unknown |
 | `0xA0` | byte, ctor sets `0` | ctor |
-| `0xA4` | pointer, ctor arg 1 | ctor |
+| `0xA4` | renderer, ctor arg 1; handed to every tile image's constructor | ctor; tile loader |
 | `0xA8` | ctor arg 3 | ctor |
-| `0xAC` | pointer, ctor arg 2; owner object | ctor, and `0x5FBC90` reads `[+0xAC]` |
+| `0xAC` | `cube::World*`, ctor arg 2; world name at `+0x94` | ctor; `0x5FBC90` reads the name, the tile generator calls the area lookup on it |
 | `0xB0` | `void* chunkGrid[1024][1024]` | index maths in `0x602440` |
 | `0x4000B0` | second `1024×1024` dword grid | `0x601D87`: `shl ebx,0xA; add ebx,0x10002C` |
 | `0x8000B8` | int, ctor sets `0` | ctor; purpose unknown |
 | `0x8000BC` | int, count of revealed cells | incremented in `0x5FC160`, persisted as `"discovered"` |
 | `0x8000C0` | `CRITICAL_SECTION` | `EnterCriticalSection` / `LeaveCriticalSection` in `0x5FC160` |
-| `0x8000D8` | `CRITICAL_SECTION` | immediately follows, 0x18 apart |
+| `0x8000D8` | `CRITICAL_SECTION` guarding cells and tiles | held by `WorldMap::render`, the tile loader and the unloader; storage chunks are freed under it |
 | `0x8000F0` | `cube::Database` | ctor call `0x449380`; used for all map persistence |
 | `0x8000F8` | int, ctor sets `1` | ctor |
 | `0x8000FC` | vector-like `{begin,end,cap}` | ctor zeroes three dwords |
@@ -98,14 +98,19 @@ The cell constructor at `0x5FB7F0` writes vftable `0x71DFBC`, which the RTTI
 scan resolves to `.?AVZoneTile@cube@@`. The cell is a named game class, not an
 anonymous record.
 
-`0x34` bytes. Two fields are established:
+`0x34` bytes. The fields RegionReveal relies on:
 
 | Offset | Meaning |
 |---|---|
-| `0x10` | non-zero for cells the renderer will draw; zero means it is skipped. **HYPOTHESIS:** the handle to that cell's loaded 32×32 tile image — see `docs/AUDIT.md` |
-| `0x30` | flags; **bit 0 = revealed on the world map** |
+| `0x04` | the tile's lowest voxel layer, in 8-block units |
+| `0x08` | the cell's tile image, or null — this is the terrain |
+| `0x10` | point-of-interest type byte, `0x18` its level |
+| `0x20` | `std::list` of area-border dots |
+| `0x2C` | tile fade-in countdown |
+| `0x30` | flags; **bit 0 = revealed on the world map**, bit 1 = a `tile` record exists in the save |
 
-The remaining 50 bytes are not identified and are deliberately left unnamed.
+`docs/POI_AND_TERRAIN.md` has the evidence for each. An earlier revision guessed
+`0x10` was a tile handle; it is not, and the tile is at `0x08`.
 
 ### Revealing — CONFIRMED
 
@@ -142,6 +147,11 @@ This is the equivalent of the hypothetical `MapShouldDisplayPOI(poi)`: it is an
 **inline bit test**, not a call, so it cannot be hooked as a function. That is
 what shapes the design in `docs/../README.md`.
 
+This is the first of two **label** passes. The ground is drawn elsewhere, by
+`WorldMap::render` at `0x5FC1B0`, from the tile image at `+0x08` and without
+looking at the reveal bit except to colour placeholders; see
+`docs/POI_AND_TERRAIN.md`.
+
 ### Persistence — CONFIRMED (partially)
 
 `0x5FBC90` builds the path `"Save/map_" + <name from [this+0xAC]+0x94>`, opens a
@@ -158,6 +168,33 @@ across `0x34000` bytes — so a written reveal bit would reach the save file.
 **This is why RegionReveal never writes to a cell** — and the reason is now
 established rather than precautionary: chunk persistence is mapped, and it copies
 the cell bytes wholesale, so a reveal bit written into a cell would be saved.
+
+## Areas — CONFIRMED
+
+The dotted lines on the map bound named areas, and `cube::World` is what knows
+them. These are the functions RegionReveal calls; all are found by signature in
+both builds (`src/game/signatures.cpp`).
+
+| Function | 2013-07-20 | Notes |
+|---|---|---|
+| area lookup `(world, blockX, blockY)` | `0x477E10` | noise warp `0x5EEFA0`, then the nearest of one centre per storage chunk at `World+0x4000BC`; returns null while that chunk is not generated. Area: name seed `+0x14`, kind `+0x18` (negative = ocean) |
+| terrain height `(world, blockX, blockY, zone)` | `0x5C5E20` | `ret 0xC`, float in `ST0`; analytic, needs no resident zone |
+| tile image constructor `(renderer, 0)` | `0x4E6A20` | `0x60`-byte object, `ret 8` |
+| tile image resize `(w, h, d)` | `0x4E75C0` | RGB voxels at `+0x30`, dimensions at `+0x44..+0x4C` |
+| tile image mesh build | `0x4E7870` | |
+| border-dot `push_back` | `0x601EB0` | the list at `ZoneTile+0x20` |
+| `std::list` clear | `0x46F870` | one body folded across element types |
+
+The tile image is allocated with the game's own `operator new` from
+`msvcr110.dll`, so the game can free it with its virtual destructor.
+
+Where the map is looking lives in the `WorldMap`'s owner: a view cell at
+`owner+0x2BC` (two ints) and the player's pan at `owner+0x1000E4C` (two floats,
+in blocks). The map data worker computes its centre as cell + pan / 256, and so
+does the mod.
+
+The rest of the tile pipeline — loader `0x469590`, `0x603A00`, zone manager
+`0x46A8A0`, unloader `0x5FBED0` — is in `docs/POI_AND_TERRAIN.md`.
 
 ## Regions
 
@@ -199,12 +236,14 @@ mod and is called out in the README's limitations.
 
 - Which serialized byte of a `reg` record holds the reveal bit. The record format
   resisted decoding and a falsification test failed; see `docs/AUDIT.md`.
-- Who writes `ZoneTile+0x10`.
+- Who writes `ZoneTile+0x10` — the world generator, by every indication, but the
+  write was never traced.
 - `WorldMap+0x90..0x9C` is a **closed** lead: written only by the constructor,
   to `-1`, and by nothing else in the translation unit.
 - Whether `discover(x, y)` always refers to the local player.
-- Which cell field distinguishes a city from a dungeon from a boss. **No POI
-  type field has been identified**, so per-category configuration is not
-  implemented rather than faked.
-- Everything at runtime: no breakpoint has ever been hit, no cell has been
-  observed changing. See `docs/TESTING.md`.
+- The full point-of-interest and landmark taxonomy. `+0x10` type 1 is a city
+  and four landmark values are pinned; dungeon and boss are not separated, so
+  per-category configuration is not implemented rather than faked.
+
+Most of the rest has since been exercised in the running game; see
+`docs/TESTING.md`.
