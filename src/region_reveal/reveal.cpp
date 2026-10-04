@@ -8,12 +8,14 @@
 #include <string>
 
 #include "../game/cube_world.hpp"
+#include "../game/label_passes.hpp"
 #include "../game/session.hpp"
 #include "../game/signatures.hpp"
 #include "../game/world.hpp"
 #include "../hooks.hpp"
 #include "areas.hpp"
 #include "log.hpp"
+#include "settings.hpp"
 #include "visited.hpp"
 
 namespace rr {
@@ -51,8 +53,7 @@ cw::AreaLookup lookup_in_game(void* map, int x, int y) {
 }
 
 // Follows the world and the player's area, and records each area entered.
-void track(cw::WorldMap* map) {
-    const DWORD now = GetTickCount();
+void track(cw::WorldMap* map, DWORD now) {
     if (now - g_tracked_at < kTrackEveryMs) return;
     g_tracked_at = now;
 
@@ -96,34 +97,23 @@ cw::MapCell* __fastcall get_cell_detour(cw::WorldMap* self, void*, int x, int y)
     if (caller != g_label_calls[0] && caller != g_label_calls[1]) {
         // An area counts as entered when the player walks into it, map open or
         // not, so tracking also runs from gameplay's calls.
-        if (GetCurrentThreadId() == g_game_thread.load(std::memory_order_relaxed)) track(self);
+        if (GetCurrentThreadId() == g_game_thread.load(std::memory_order_relaxed)) track(self, GetTickCount());
         return cell;
     }
 
-    // The label passes run on the game thread by definition.
+    // The label passes run on the game thread by definition. They ask for up
+    // to 32768 cells a frame, so this path does as little as it can.
     g_game_thread.store(GetCurrentThreadId(), std::memory_order_relaxed);
-    track(self);
+    const DWORD now = GetTickCount();
+    track(self, now);
 
     if (!cell || cw::cell_revealed(cell) || g_areas.count() == 0) return cell;
-    if (!g_cells.revealed(x, y, GetTickCount(), g_areas, lookup_in_game, self)) return cell;
-    return g_cells.revealed_copy(cell, x, y);
-}
-
-// MSVC pads between functions with int3; the first run of them after the
-// entry marks the end of the draw method.
-std::uint8_t* end_of_function(std::uint8_t* begin, std::uint8_t* limit) {
-    for (std::uint8_t* at = begin + 0x100; at + 3 <= limit; ++at) {
-        if (at[0] == 0xCC && at[1] == 0xCC && at[2] == 0xCC) return at;
-    }
-    return nullptr;
+    return g_cells.view(cell, x, y, now, g_areas, lookup_in_game, self);
 }
 
 // The label passes are the draw method's only two calls to getCell. Anything
 // other than exactly two means this is not the code the mod was written for.
-bool find_label_calls(std::uint8_t* draw, std::uint8_t* limit, std::uint8_t* getCell) {
-    std::uint8_t* end = end_of_function(draw, limit);
-    if (!end) return false;
-
+bool find_label_calls(std::uint8_t* draw, std::uint8_t* end, std::uint8_t* getCell) {
     int found = 0;
     for (std::uint8_t* at = draw; at + 5 <= end; ++at) {
         if (*at != 0xE8) continue;  // call rel32
@@ -169,7 +159,8 @@ bool initialize() {
         log_line("unsupported Cube World Alpha build - no hook installed");
         return false;
     }
-    if (!find_label_calls(draw, text.text_end, get_cell)) {
+    std::uint8_t* draw_end = cw::function_end(draw, text.text_end);
+    if (!draw_end || !find_label_calls(draw, draw_end, get_cell)) {
         log_line("could not find the map's two label passes - no hook installed");
         return false;
     }
@@ -182,6 +173,17 @@ bool initialize() {
         g_get_cell.remove();
         log_line("the getCell trampoline did not behave - hook removed");
         return false;
+    }
+
+    // Optional, and independent of the reveal: if the bytes are not exactly the
+    // expected ones, labels simply keep the game's own zoom and range limits.
+    const cw::LabelPassOptions options = read_label_options();
+    if (cw::patch_label_passes(draw, static_cast<std::size_t>(draw_end - draw), options)) {
+        log_linef("labels: points of interest %s, %d cells around the map's centre",
+                  options.anyZoom ? "at every zoom" : "when zoomed in",
+                  options.wideRange ? cw::kWideLabelRadius : cw::kLabelRadius);
+    } else {
+        log_line("labels: the map's label passes did not match - keeping the game's zoom and range limits");
     }
 
     // The game now calls into this DLL, so it must never be unloaded.

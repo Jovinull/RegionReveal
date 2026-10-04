@@ -90,6 +90,13 @@ bool module_text(ModuleRange* out) {
     return false;
 }
 
+std::uint8_t* function_end(std::uint8_t* begin, std::uint8_t* limit) {
+    for (std::uint8_t* at = begin + 0x100; at + 3 <= limit; ++at) {
+        if (at[0] == 0xCC && at[1] == 0xCC && at[2] == 0xCC) return at;
+    }
+    return nullptr;
+}
+
 std::uint8_t* find_unique(const ModuleRange& range, const char* pattern) {
     const std::vector<Token> tokens = parse(pattern);
     if (tokens.empty()) return nullptr;

@@ -265,6 +265,7 @@ void damaged_files() {
 // A world whose areas come from a table, and which can refuse to decide.
 struct FakeWorld {
     std::map<std::pair<int, int>, cw::AreaId> areas;
+    cw::AreaId elsewhere = 0;  // the area of every cell not in `areas`; 0 = undecided
     bool generated = true;
     int lookups = 0;
 
@@ -273,8 +274,9 @@ struct FakeWorld {
         ++world->lookups;
         if (!world->generated) return {};
         const auto found = world->areas.find({x, y});
-        if (found == world->areas.end()) return {};
-        return {true, found->second};
+        if (found != world->areas.end()) return {true, found->second};
+        if (world->elsewhere) return {true, world->elsewhere};
+        return {};
     }
 };
 
@@ -342,27 +344,37 @@ void label_passes() {
     check(!cells.revealed(100, 100, now, areas, &FakeWorld::lookup, &world),
           "after a world change every cell is decided afresh");
 
+    areas.add(9);
     std::uint8_t real[cw::kCellSize];
     for (int i = 0; i < cw::kCellSize; ++i) real[i] = static_cast<std::uint8_t>(i * 7);
     real[cw::kCellFlags] = 0x80;
-    const auto* cell = reinterpret_cast<const cw::MapCell*>(real);
-    const auto* copy = reinterpret_cast<const std::uint8_t*>(cells.revealed_copy(cell, 100, 100));
-    check(copy != real, "the label pass gets a copy, never the cell itself");
+    auto* cell = reinterpret_cast<cw::MapCell*>(real);
+    const auto* copy =
+        reinterpret_cast<const std::uint8_t*>(cells.view(cell, 100, 100, now, areas, &FakeWorld::lookup, &world));
+    check(copy != real, "a label pass asking for a revealed cell gets a copy, never the cell itself");
     check(copy[cw::kCellFlags] == (0x80 | cw::kRevealedBit), "the copy has the reveal bit and keeps the other flags");
     bool same = true;
     for (int i = 0; i < cw::kCellSize; ++i) same = same && (i == cw::kCellFlags || copy[i] == real[i]);
     check(same, "every other byte matches the cell");
     check(real[cw::kCellFlags] == 0x80, "the cell itself is untouched");
+    check(cells.view(cell, 101, 101, now, areas, &FakeWorld::lookup, &world) == cell,
+          "a cell outside every revealed area is handed back as it is");
 
     real[0x10] = 0x42;
-    const auto* again = reinterpret_cast<const std::uint8_t*>(cells.revealed_copy(cell, 100, 100));
+    const auto* again =
+        reinterpret_cast<const std::uint8_t*>(cells.view(cell, 100, 100, now, areas, &FakeWorld::lookup, &world));
     check(again == copy && again[0x10] == 0x42, "asking again refreshes the same copy, so it never goes stale");
 
+    world.elsewhere = 9;
     std::set<const void*> slots;
-    for (int x = 0; x < 64; ++x) {
-        for (int y = 0; y < 64; ++y) slots.insert(cells.revealed_copy(cell, 32770 + x, 32790 + y));
+    const int side = 2 * cw::kWideLabelRadius;
+    for (int x = 0; x < side; ++x) {
+        for (int y = 0; y < side; ++y) {
+            slots.insert(cells.view(cell, 32736 + x, 32736 + y, now, areas, &FakeWorld::lookup, &world));
+        }
     }
-    check(slots.size() == 64 * 64, "every cell of a 64 x 64 window gets its own copy");
+    check(slots.size() == static_cast<std::size_t>(side * side),
+          "every cell of the widest label window gets its own copy");
 }
 
 }  // namespace

@@ -50,12 +50,11 @@ LabelCells::Slot& LabelCells::slot(int x, int y) {
     return s;
 }
 
-bool LabelCells::revealed(int x, int y, std::uint32_t now, const RevealedAreas& areas, AreaLookupFn lookup,
-                          void* context) {
-    Slot& s = slot(x, y);
+bool LabelCells::decide(Slot& s, std::uint32_t now, const RevealedAreas& areas, AreaLookupFn lookup,
+                        void* context) {
     if (s.state != State::Known) {
         if (s.state == State::Unknown && now - s.checkedAt < kRetryMs) return false;
-        const cw::AreaLookup found = lookup(context, x, y);
+        const cw::AreaLookup found = lookup(context, s.x, s.y);
         s.checkedAt = now;
         if (!found.known) {
             s.state = State::Unknown;
@@ -72,8 +71,15 @@ bool LabelCells::revealed(int x, int y, std::uint32_t now, const RevealedAreas& 
     return s.member;
 }
 
-cw::MapCell* LabelCells::revealed_copy(const cw::MapCell* cell, int x, int y) {
+bool LabelCells::revealed(int x, int y, std::uint32_t now, const RevealedAreas& areas, AreaLookupFn lookup,
+                          void* context) {
+    return decide(slot(x, y), now, areas, lookup, context);
+}
+
+cw::MapCell* LabelCells::view(cw::MapCell* cell, int x, int y, std::uint32_t now, const RevealedAreas& areas,
+                              AreaLookupFn lookup, void* context) {
     Slot& s = slot(x, y);
+    if (!decide(s, now, areas, lookup, context)) return cell;
     std::memcpy(s.copy, cell, sizeof(s.copy));
     s.copy[cw::kCellFlags] |= cw::kRevealedBit;
     return reinterpret_cast<cw::MapCell*>(s.copy);

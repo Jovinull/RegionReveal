@@ -17,6 +17,7 @@
 #include <cstring>
 #include <vector>
 
+#include "../src/game/label_passes.hpp"
 #include "../src/game/signatures.hpp"
 
 namespace {
@@ -103,6 +104,15 @@ int main(int argc, char** argv) {
     for (int i = 0; i < kCount; ++i) {
         check(kSignatures[i].name, cw::find_unique(range, kSignatures[i].pattern), image.data(), text_rva,
               text_off, std::strtoul(argv[2 + i], nullptr, 16));
+    }
+
+    // The optional label-pass changes rewrite bytes inside the draw method;
+    // they must be exactly the expected ones.
+    if (std::uint8_t* draw = cw::find_unique(range, cw::kSigMapOverlayDraw)) {
+        std::uint8_t* end = cw::function_end(draw, range.text_end);
+        const bool ok = end && cw::label_passes_match(draw, static_cast<std::size_t>(end - draw));
+        std::printf("  %s label passes (zoom gate and 11 range bytes)\n", ok ? "ok  " : "FAIL");
+        if (!ok) ++failures;
     }
 
     return failures == 0 ? 0 : 1;

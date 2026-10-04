@@ -18,6 +18,7 @@ add_library(dinput8 SHARED
   src/mod.cpp
   src/hooks.cpp
   src/loader/proxy_dinput8.cpp
+  src/game/label_passes.cpp
   src/game/session.cpp
   src/game/signatures.cpp
   src/game/world.cpp
@@ -25,6 +26,7 @@ add_library(dinput8 SHARED
   src/region_reveal/log.cpp
   src/region_reveal/paths.cpp
   src/region_reveal/reveal.cpp
+  src/region_reveal/settings.cpp
   src/region_reveal/visited.cpp
 )
 target_include_directories(dinput8 PRIVATE src)
@@ -32,7 +34,7 @@ set_target_properties(dinput8 PROPERTIES PREFIX "" OUTPUT_NAME "dinput8")
 
 # Resolves the shipped signatures against a Cube.exe on disk.
 #   python tests/run_tests.py build/Release/signature_test.exe "<path>/Cube.exe"
-add_executable(signature_test tests/signature_test.cpp src/game/signatures.cpp)
+add_executable(signature_test tests/signature_test.cpp src/game/signatures.cpp src/game/label_passes.cpp)
 target_include_directories(signature_test PRIVATE src)
 
 # The logic that needs neither the game nor a Cube.exe: the visited-area file,
