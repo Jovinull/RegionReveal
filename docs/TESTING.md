@@ -114,9 +114,21 @@ in seconds.
 | 2013-07-02, world `oldbuild` | label options applied (`96 cells`), `visited: 1 areas`, `back in area (512,512)`; Ikokor City with its districts at the default zoom; 25 points of interest and 38 landmarks shown, 0 hidden, 0 leaked |
 | Crashes | none in either log |
 
-**Still to do:** D, E and F (dungeons, bosses and cities left untouched by
-gameplay — the mod changes nothing outside the two label passes), H against a
-live unsupported build, and I, the 30-minute session.
+## Run on 2026-10-04, gameplay, a long session and multiplayer
+
+The release `dinput8.dll`, world `mark test`, the test character at level 500.
+
+| Check | Result |
+|---|---|
+| Map data untouched | The nine storage chunks around the player were dumped from memory with the map closed, then again after the map had been open 15 s with every label of the area revealed. Place and mission records: **0 bytes changed**. Cells: 0 bytes changed in the reveal flags; the only change was the tile fade-in counter (`+0x2C`) of 18 cells by the player, which `WorldMap::render` counts down itself while drawing. A control dump 15 s apart with the map closed changed nothing |
+| **E** — boss missions | The area's records held six missions (monster levels 60, state 0 = not done) before and after the reveal. At one of them the game showed "Defeat the ruler in Ikorok Valley" as an open task, as in vanilla |
+| **D** — a revealed dungeon | Teleported to the Catacombs of Asgor: the HUD names it, the place is as generated and the mission list is unchanged |
+| **F** — a revealed city | Durala City, Adventurer District: houses, streets and the HUD name as in vanilla |
+| **I** — 30 minutes | 71 cycles of moving 1–15 cells in a random direction, walking, opening the map, zooming in and out and closing it. Private memory between 1113 and 1308 MB with no upward trend, no crash, a new area recorded on the way |
+| Multiplayer | The 2013-07-20 `Server.exe` on this machine, the client connected to `localhost`. The game names the online world `online_26879`, so it gets its own `.visited` file; "Lands of Terodara" was recorded on arrival and its labels — Ruins of Lugolon, Sanria Palace, Krogor Castle, Rock of Angar and more — shown on the map. In the Alpha the client generates the world itself, so nothing else differs |
+
+**Still to do:** H against a live unsupported build — covered offline: no
+signature matches `Server.exe` or any other executable checked.
 
 ## Earlier runs
 

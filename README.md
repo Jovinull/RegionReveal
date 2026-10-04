@@ -40,7 +40,8 @@ same way it would after you had walked over every one of them.
 
 Entered areas stay revealed across sessions, kept per world in
 `RegionReveal_<world>.visited` beside the game. Areas you never entered, and
-areas of other worlds, stay hidden.
+areas of other worlds, stay hidden. It works on a server too: each online world
+gets its own history.
 
 ## What it does not do
 

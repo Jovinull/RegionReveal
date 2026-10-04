@@ -66,4 +66,6 @@ running game where that is possible. `docs/TESTING.md` has the runs.
 | Label options fail safe | PASS | The twelve bytes are compared before writing and checked on disk in both builds; a mismatch leaves the game's limits and the reveal in place |
 | Performance | PASS, with a cost while the map is open | One lookup per cell, cached. Map screen about 80 fps at the game's range, about 60 at the default 96, about 49 at 127 (`docs/BEHAVIOUR.md`); nothing while the map is closed |
 | Clean reproducible build | PASS | `cmake -B build -A Win32`, `/W4 /WX`, 68 unit checks |
-| Extended stability | PARTIAL | Short sessions only; test I still to do |
+| Extended stability | PASS | A 30-minute session of moving between areas and using the map: memory 1.1–1.3 GB with no upward trend, no crash |
+| Gameplay untouched | PASS | Place and mission records byte for byte identical before and after the reveal; boss missions stay open; a revealed dungeon and city behave as vanilla |
+| Multiplayer | PASS | Connected to a local `Server.exe`: the online world gets its own history and its area's labels are revealed |
