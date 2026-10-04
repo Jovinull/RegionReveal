@@ -105,6 +105,42 @@ asking the game again. The copy handed to the label pass is taken afresh on
 every call, so it is never stale, and no two cells of the 64 × 64 window share a
 slot, so a copy stays valid for the whole frame.
 
+## Lifting the game's label limits
+
+The two label passes have limits of their own, independent of the reveal bit
+(`docs/MAP_LABELS.md`): the point-of-interest pass is skipped unless the map is
+zoomed in, and both walk only the 64 × 64 cells around the map's centre — less
+than an area, which is 45 to 80 cells across. By default the mod lifts both, so
+entering an area shows all of it:
+
+- the conditional jump that skips the point-of-interest pass becomes a six-byte
+  no-op;
+- the radius of both passes, written as an 8-bit `± 0x20` in eleven places,
+  becomes `± 0x40`, a 128 × 128 window.
+
+The draw method is the same 6650 bytes in both builds, differing only in
+absolute addresses, so the twelve edits sit at the same offsets in each. Every
+byte to be replaced is compared with what it must be before anything is written,
+and if any differs nothing is: labels just keep the game's limits, and the
+reveal works as before. `tests/signature_test.cpp` checks the same bytes in both
+`Cube.exe` files on disk. Either change can be turned off in `RegionReveal.ini`
+(`[labels] any_zoom=0`, `wide=0`); the file is read once, while the DLL loads,
+because the bytes are only ever written before the game has started.
+
+The per-cell answer table is 128 × 128, exactly the wider window, so the cells a
+pass asks for in one frame still never share a slot.
+
+Cost, measured on 2026-10-03 with the map open — the label passes run only then:
+
+| Labels | Label passes per frame | Of which the mod | Map screen |
+|---|---|---|---|
+| the game's limits | about 3.5 ms | 0.35 ms | about 88 fps |
+| any zoom | about 3.6 ms | 0.5 ms | about 94 fps |
+| any zoom, 64 cells | about 8.5 ms | 1.9 ms | about 60 fps |
+
+Most of the wider range's cost is the game's own work over four times as many
+cells. Gameplay with the map closed is unaffected.
+
 ## Persistence
 
 `RegionReveal_<world>.visited`, beside the game, keeps one cell per area

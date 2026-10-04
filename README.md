@@ -6,7 +6,9 @@ label in that area appears on the world map: cities and their districts,
 castles, palaces, catacombs, ruins, mountains, canyons, valleys, lakes.
 
 Only the labels. The ground stays exactly as you explored it, and the game's
-save is never touched.
+save is never touched. By default the whole area's labels show at once, at any
+zoom, rather than only those near the map's centre and, for city districts and
+dungeon entrances, only when zoomed in.
 
 > **Checked in the running game on 2026-10-03.** In a new world, entering
 > "Lands of Durala" put every label of its 3 610 cells on the map at once. A
@@ -36,14 +38,33 @@ areas of other worlds, stay hidden.
   player (city districts, dungeon entrances) take a few seconds to be filled in.
 - **It does not touch gameplay.** Quests, bosses, loot, fast travel and world
   generation are untouched. Only the two map passes that draw labels get a
-  different answer; every other caller of the same function, fast travel
-  included, keeps seeing the real map.
+  different answer, and only they are widened; every other caller of the same
+  function, fast travel included, keeps seeing the real map.
 - **It does not write to the save.** The reveal bit is set on a copy of the cell
   handed to the label pass, never on the cell itself.
 
-The game draws points of interest (city districts, dungeon entrances) only when
-the map is zoomed in, and landmark names at any zoom. That is vanilla behaviour,
-and the mod follows it.
+## Labels at any zoom, across the whole area
+
+The game itself limits its map labels in two ways, and by default the mod lifts
+both:
+
+- it draws points of interest — city districts, dungeon entrances — only when
+  the map is zoomed in; with the mod they show at every zoom;
+- it draws labels only within 32 cells of the map's centre, less than an area is
+  wide; with the mod the range is 64, so the whole area around you fits.
+
+Both are a few bytes in the game's map-drawing code, checked byte for byte
+before anything is written, and they only change which labels the game draws.
+They cost frame time while the map is open, and only then: on the test machine
+the map screen went from about 94 to about 60 frames per second with the wider
+range, while the zoom change cost nothing measurable. Either can be turned off
+in an optional `RegionReveal.ini` beside `Cube.exe`, read when the game starts:
+
+```ini
+[labels]
+any_zoom=1   ; 0: points of interest only when zoomed in, as in the game
+wide=1       ; 0: labels within 32 cells of the map's centre, as in the game
+```
 
 ## Supported builds
 
@@ -107,6 +128,9 @@ before the game has started any thread.
   `getCell` from exactly one place. When one of those two calls asks for a cell
   of a recorded area, it gets a copy with the reveal bit set. The answer for
   each cell is cached, so the game's lookup runs once per cell, not per frame.
+- **Widening the label passes.** Unless turned off, the zoom check that skips
+  the point-of-interest pass is replaced with a no-op and the 32-cell radius of
+  both passes becomes 64 — twelve bytes, identical in both builds.
 - **Never guessing.** The game's lookup picks the nearest of the area centres it
   has generated so far, so far from where the player has been it can name the
   wrong area. The mod only trusts an answer once every centre the lookup
@@ -125,6 +149,8 @@ Details and evidence: [`docs/BEHAVIOUR.md`](docs/BEHAVIOUR.md),
 - **A landmark on an area's border can show from either side.** The game keeps
   one landmark per 8 × 8 block of cells, and the label of a block cut by the
   border can show as soon as any of its cells is in an area you entered.
+- **Busy labels when zoomed far out.** With every label of an area on screen,
+  names close together — a city's districts — can overlap.
 - **Boss is not covered separately.** No per-category toggles, deliberately:
   the reveal unit is the area, and the game's own categories are only partly
   identified.

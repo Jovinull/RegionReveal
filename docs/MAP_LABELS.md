@@ -26,7 +26,25 @@ The first pass runs only when a float at `controller+0x1C4` is above 2.0
 value grows as the map zooms in: a diagnostic build read 1.00 at the default
 zoom, 1.69 a few wheel notches in and 4.86 fully in, and the pass ran only in
 the last case. City districts and dungeon entrances are therefore a close-zoom
-feature of the game itself.
+feature of the game itself — unless the mod's `any_zoom` option, on by default,
+turns that jump into a no-op.
+
+### Both passes walk 32 cells each way
+
+The radius is an 8-bit displacement or immediate, `± 0x20`, written eleven
+times: the first and last row and column of each pass, and the bounds each pass
+recomputes at the end of a row or cell. Offsets from the start of the draw
+method, the same in both builds:
+
+| Pass | Offsets |
+|---|---|
+| Points of interest | `+0x135`, `+0x138`, `+0x151`, `+0x157`, `+0xD92`, `+0xDAA` |
+| Landmarks | `+0xDFF`, `+0xE02`, `+0xE24`, `+0xE30`, `+0x1967` |
+
+The mod's `wide` option, on by default, makes each `± 0x40`. The map data
+worker keeps storage chunks loaded three chunks — 192 cells — around the map's
+centre, so every cell of the wider window is there to ask about; a diagnostic
+build saw all 16 384 loaded.
 
 ### Landmark records — CONFIRMED
 

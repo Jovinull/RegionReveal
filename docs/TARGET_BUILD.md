@@ -98,7 +98,11 @@ mod finds by signature; the others are references used in the docs.
 Structure offsets, by contrast, are identical in both — the signatures embed
 them (stride `0x34` and the grid shift in `getCell`, the area-centre table at
 `World+0x4000BC` and its bounds in the area lookup) and still match, which is
-the evidence for that claim. The offsets no signature covers — the local player
+the evidence for that claim. The map overlay's draw method is the same 6650
+bytes in both, differing only in absolute addresses, so the twelve bytes the
+label options rewrite sit at the same offsets from its start in each; both
+`Cube.exe` files are checked for them by `tests/signature_test.cpp`. The offsets
+no signature covers — the local player
 at `controller+0x8006D0`, its position, the world name at `World+0x94` — were
 exercised on the 2013-07-02 build on 2026-10-03, when a new world there recorded
 its first area at the player's cell under the right world name. This is why the

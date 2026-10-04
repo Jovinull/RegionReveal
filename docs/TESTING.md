@@ -19,9 +19,10 @@ python tests/run_tests.py build/Release/signature_test.exe "<2013-07-20>/Cube.ex
   once, a new area updates cached answers, copies carry the bit and never alias
   within a 64 × 64 window).
 - `signature_test` — every signature must match exactly once, at the address
-  recorded in `docs/TARGET_BUILD.md`, in each supported build. `run_tests.py`
-  identifies each executable by SHA-256 first. `Server.exe` is refused: the
-  `getCell` and map-overlay signatures do not match in it.
+  recorded in `docs/TARGET_BUILD.md`, in each supported build, and the twelve
+  bytes the label options replace must be exactly the expected ones.
+  `run_tests.py` identifies each executable by SHA-256 first. `Server.exe` is
+  refused: the `getCell` and map-overlay signatures do not match in it.
 
 ## In the game
 
@@ -32,6 +33,7 @@ Back up `Save/` first, then copy `dinput8.dll` beside `Cube.exe`.
 | Line | Meaning |
 |---|---|
 | `supported build detected; RegionReveal active (set up in N ms)` | the hook is in; anything else at start-up means the game runs unmodified |
+| `labels: points of interest at every zoom, 64 cells around the map's centre` | the label options as applied; the defaults, or what `RegionReveal.ini` asked for |
 | `visited: N areas recorded in world 'name'` | a world was opened and its file read |
 | `entered new area (X,Y) at cell (x,y) in world 'name'` | an area was entered for the first time and written to the file |
 | `back in area (X,Y) ...` | the player moved into an area already recorded |
@@ -39,8 +41,10 @@ Back up `Save/` first, then copy `dinput8.dll` beside `Cube.exe`.
 The area is named by the storage chunk of its centre, so two lines with the
 same `(X,Y)` are the same area.
 
-Points of interest (city districts, dungeon entrances) are drawn by the game
-only when the map is zoomed in; landmark names show at any zoom.
+With the default options, points of interest (city districts, dungeon entrances)
+show at every zoom and labels reach 64 cells from the map's centre. Set
+`any_zoom=0` and `wide=0` in `RegionReveal.ini` to compare with the game's own
+limits.
 
 | | Scenario | Expected |
 |---|---|---|
@@ -82,6 +86,18 @@ checkable rather than a matter of counting text on a screenshot.
 | Points of interest after loading | none at the moment the world loaded, all 25 twenty seconds later |
 | Undecided cells within 160 of the player | 21 121 at load, 641 twenty seconds later; none inside the player's area either time |
 | Exit through the menu | clean, no error |
+
+### The label options, same session and world
+
+| Check | Result |
+|---|---|
+| Start-up | `labels: points of interest at every zoom, 64 cells around the map's centre` |
+| Window | x 32736–32863, y 32736–32863: 16 384 cells, all loaded |
+| Default zoom, point-of-interest pass | runs; city districts drawn. 100 points of interest in the window: the area's 25 shown, the other 75 belong to other areas and stay hidden; 0 hidden inside the area |
+| Landmark pass | 138 blocks with a landmark: 35 shown by the mod, 1 already explored, 102 of other areas hidden, 0 hidden inside the area, 0 leaked. One more than before: a block on the area's east border, now inside the window |
+| Zoomed out | more of the area's landmarks on screen (Narrior Tree, Catacombs of Asgor, Likusel Palace); a city's districts overlap |
+| Frame time, map open | see `docs/BEHAVIOUR.md`: about 94 fps with any zoom alone, about 60 with the wider range too |
+| `RegionReveal.ini` with both options off | the window back to 64 × 64 and the point-of-interest pass skipped at the default zoom |
 
 **Not yet run on this version:** B on screen (the counters showed nothing
 outside the area within the window, but the map was not panned across a

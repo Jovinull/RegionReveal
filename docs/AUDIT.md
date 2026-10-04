@@ -60,6 +60,8 @@ running game where that is possible. `docs/TESTING.md` has the runs.
 | Persistent, per-world history | PASS offline, pending in game | Format v3, atomic replace, fail-closed parse, v2 converted; covered by `region_test` |
 | No wrong area from an incomplete lookup | PASS | Undecided cells are never revealed: 21 121 undecided at load, 641 twenty seconds later, none in the player's area |
 | World names with spaces | PASS | `mark test` recorded; the previous version refused such names silently |
-| Performance | PASS | One lookup per cell, cached; earlier measurement 26–69 cycles per `getCell` call |
+| Labels at any zoom, whole area at once | PASS | With the default options the point-of-interest pass runs at the default zoom and the window is 128 × 128; counters: the area's 25 points of interest and 35 landmarks shown, nothing of other areas |
+| Label options fail safe | PASS | The twelve bytes are compared before writing and checked on disk in both builds; a mismatch leaves the game's limits and the reveal in place |
+| Performance | PASS, with a cost while the map is open | One lookup per cell, cached. Map screen about 94 fps with the game's range, about 60 with the wider range (`docs/BEHAVIOUR.md`); nothing while the map is closed |
 | Clean reproducible build | PASS | `cmake -B build -A Win32`, `/W4 /WX`, 68 unit checks |
 | Extended stability | PARTIAL | Short sessions only; test I still to do |
