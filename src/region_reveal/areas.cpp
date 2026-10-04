@@ -95,6 +95,13 @@ cw::MapCell* LabelCells::view(cw::MapCell* cell, int x, int y, std::uint32_t now
     return reinterpret_cast<cw::MapCell*>(s.copy);
 }
 
+cw::MapCell* LabelCells::hidden(const cw::MapCell* cell, int x, int y) {
+    Slot& s = slot(x, y);
+    std::memcpy(s.copy, cell, sizeof(s.copy));
+    s.copy[cw::kCellFlags] &= static_cast<std::uint8_t>(~cw::kRevealedBit);
+    return reinterpret_cast<cw::MapCell*>(s.copy);
+}
+
 void LabelCells::clear() {
     if (++epoch_ == 0) {
         // Wrapped after four billion worlds: start the slots over rather than

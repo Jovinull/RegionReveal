@@ -40,10 +40,27 @@ inline constexpr int kWorldName = 0x94;
 // area lookup's signature embeds this offset, so it is checked in both builds.
 inline constexpr int kWorldAreaCentres = 0x4000BC;
 
+// ZoneTile+0x10: the cell's point of interest, 1 for a city district.
+inline constexpr int kCellPoi = 0x10;
+inline constexpr std::uint8_t kPoiCityDistrict = 1;
+
+// A place record: one per 8 x 8 block of cells, after the cells of a storage
+// chunk. The landmark pass draws its name; the same record carries the boss
+// mission of that place, if it has one. Layout as cuwo's MissionData.
+inline constexpr int kPlaceOriginX = 0x00;   // int64, fixed point, 16 bits per block
+inline constexpr int kPlaceOriginY = 0x08;
+inline constexpr int kPlaceMission = 0x34;   // non-zero when the place has a mission
+inline constexpr int kPlaceMissionState = 0x41;
+inline constexpr std::uint8_t kMissionDone = 2;  // the game kills the boss for good at 2
+
 // The WorldMap is constructed in place inside the game controller, which also
 // holds the local player.
 inline constexpr int kOwnerToWorldMap = 0x800D44;
 inline constexpr int kOwnerToLocalPlayer = 0x8006D0;  // cube::Creature*
+
+// The map's zoom. The game draws points of interest only above kPoiZoom.
+inline constexpr int kOwnerMapZoom = 0x1C4;  // float, 1.0 at the default zoom
+inline constexpr float kPoiZoom = 2.0f;
 
 // cube::Creature position: 64-bit fixed point, 16 fractional bits per block.
 inline constexpr int kCreaturePosX = 0x10;

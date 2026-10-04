@@ -14,6 +14,7 @@
 #include "../src/game/cube_world.hpp"
 #include "../src/game/world.hpp"
 #include "../src/region_reveal/areas.hpp"
+#include "../src/region_reveal/marks.hpp"
 #include "../src/region_reveal/paths.hpp"
 #include "../src/region_reveal/visited.hpp"
 
@@ -378,6 +379,88 @@ void label_passes() {
           "every cell of the widest label window, 254 x 254, gets its own copy");
 }
 
+// --- marks on landmark names ------------------------------------------------
+
+void place_marks() {
+    std::printf("place marks\n");
+    std::uint8_t record[0x68] = {};
+    const std::int64_t x = (32820LL * 256 + 40) * 65536;
+    const std::int64_t y = (32821LL * 256 + 200) * 65536;
+    std::memcpy(record + cw::kPlaceOriginX, &x, sizeof(x));
+    std::memcpy(record + cw::kPlaceOriginY, &y, sizeof(y));
+    const cw::Cell origin = rr::place_origin(record);
+    check(origin.x == 32820 && origin.y == 32821, "a place's origin is the cell holding its position");
+
+    check(rr::place_mark(record, false) == rr::PlaceMark::None, "a place never visited has no mark");
+    check(rr::place_mark(record, true) == rr::PlaceMark::Visited, "a place the game revealed is marked visited");
+
+    const std::uint32_t mission = 26572;
+    std::memcpy(record + cw::kPlaceMission, &mission, sizeof(mission));
+    record[cw::kPlaceMissionState] = 1;
+    check(rr::place_mark(record, true) == rr::PlaceMark::Visited, "a boss still being fought is not defeated");
+    record[cw::kPlaceMissionState] = cw::kMissionDone;
+    check(rr::place_mark(record, false) == rr::PlaceMark::BossDefeated,
+          "a defeated boss marks its place, visited or not");
+    const std::uint32_t none = 0;
+    std::memcpy(record + cw::kPlaceMission, &none, sizeof(none));
+    check(rr::place_mark(record, false) == rr::PlaceMark::None, "the state alone, without a mission, means nothing");
+
+    float white[4] = {1, 1, 1, 1};
+    rr::apply_mark_color(rr::PlaceMark::Visited, white);
+    check(white[0] == 1 && white[1] == 1 && white[2] == 1, "a visited place keeps the game's colour");
+    rr::apply_mark_color(rr::PlaceMark::BossDefeated, white);
+    check(white[0] < 1 && white[1] == 1 && white[2] < 1 && white[3] == 1, "a defeated boss turns its name green");
+}
+
+void marked_text() {
+    std::printf("marked text\n");
+    rr::MarkedText marked;
+
+    cw::GameWString shortName{};
+    wcscpy_s(shortName.buffer, L"LAKE");
+    shortName.size = 4;
+    shortName.capacity = 7;
+    check(marked.apply(&shortName, rr::PlaceMark::None) == &shortName, "no mark: the game's own string");
+    const cw::GameWString* out = marked.apply(&shortName, rr::PlaceMark::Visited);
+    check(out != &shortName && out->capacity >= 8 && std::wstring(out->chars(), out->size) == L"LAKE \u2022",
+          "a short name gets the visited dot");
+    check(std::wstring(shortName.chars(), shortName.size) == L"LAKE", "and the game's string is untouched");
+
+    wchar_t heap[] = L"CATACOMBS OF DAMAION";
+    cw::GameWString longName{};
+    longName.pointer = heap;
+    longName.size = static_cast<std::uint32_t>(wcslen(heap));
+    longName.capacity = 31;
+    out = marked.apply(&longName, rr::PlaceMark::BossDefeated);
+    check(std::wstring(out->chars(), out->size) == L"CATACOMBS OF DAMAION \u2020",
+          "a long name gets the dagger of a defeated boss");
+    check(out->chars()[out->size] == 0, "and stays terminated");
+
+    longName.size = 40;
+    longName.capacity = 20;
+    check(marked.apply(&longName, rr::PlaceMark::Visited) == &longName, "a string that makes no sense is left alone");
+
+    std::wstring huge(200, L'A');
+    cw::GameWString hugeName{};
+    hugeName.pointer = &huge[0];
+    hugeName.size = 200;
+    hugeName.capacity = 200;
+    check(marked.apply(&hugeName, rr::PlaceMark::Visited) == &hugeName, "a name too long to extend is left alone");
+}
+
+void hidden_cells() {
+    std::printf("hidden cells\n");
+    rr::LabelCells cells;
+    std::uint8_t real[cw::kCellSize];
+    for (int i = 0; i < cw::kCellSize; ++i) real[i] = static_cast<std::uint8_t>(i * 5 + 1);
+    real[cw::kCellFlags] = 0x83;
+    const auto* hidden = reinterpret_cast<const std::uint8_t*>(
+        cells.hidden(reinterpret_cast<const cw::MapCell*>(real), 7, 9));
+    check(hidden != real && (hidden[cw::kCellFlags] & cw::kRevealedBit) == 0,
+          "a hidden district is a copy without the reveal bit");
+    check(hidden[cw::kCellFlags] == 0x82 && real[cw::kCellFlags] == 0x83, "other flags kept, the cell untouched");
+}
+
 }  // namespace
 
 int main() {
@@ -390,6 +473,9 @@ int main() {
     damaged_files();
     revealed_areas();
     label_passes();
+    place_marks();
+    marked_text();
+    hidden_cells();
 
     std::printf("\n%s\n", g_failures ? "FAILURES" : "all region tests passed");
     return g_failures == 0 ? 0 : 1;

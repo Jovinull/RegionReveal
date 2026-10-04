@@ -5,16 +5,21 @@
 
 #include <atomic>
 #include <cstring>
+#include <memory>
 #include <string>
+#include <vector>
 
 #include "../game/cube_world.hpp"
 #include "../game/label_passes.hpp"
+#include "../game/label_text.hpp"
 #include "../game/session.hpp"
 #include "../game/signatures.hpp"
 #include "../game/world.hpp"
 #include "../hooks.hpp"
+#include "../threads.hpp"
 #include "areas.hpp"
 #include "log.hpp"
+#include "marks.hpp"
 #include "settings.hpp"
 #include "visited.hpp"
 
@@ -38,6 +43,11 @@ std::atomic<DWORD> g_game_thread{0};
 VisitedAreas g_visited;
 RevealedAreas g_areas;
 LabelCells g_cells;
+MarkedText g_marked;
+Options g_options;
+
+// The map the label passes last drew, for the landmark name marks.
+cw::WorldMap* g_label_map = nullptr;
 
 std::string g_world;  // the name last read from the game, usable or not
 bool g_in_area = false;
@@ -102,13 +112,38 @@ cw::MapCell* __fastcall get_cell_detour(cw::WorldMap* self, void*, int x, int y)
     }
 
     // The label passes run on the game thread by definition. They ask for up
-    // to 32768 cells a frame, so this path does as little as it can.
+    // to 64 516 cells a frame, so this path does as little as it can.
     g_game_thread.store(GetCurrentThreadId(), std::memory_order_relaxed);
+    g_label_map = self;
     const DWORD now = GetTickCount();
     track(self, now);
+    if (!cell) return cell;
 
-    if (!cell || cw::cell_revealed(cell) || g_areas.count() == 0) return cell;
+    // Zoomed out, a city's districts pile up on top of its name, and the game
+    // itself would not draw them at that zoom: hide them there.
+    if (caller == g_label_calls[0] && !g_options.farDistricts &&
+        reinterpret_cast<const std::uint8_t*>(cell)[cw::kCellPoi] == cw::kPoiCityDistrict &&
+        *reinterpret_cast<const float*>(cw::owner_of(self) + cw::kOwnerMapZoom) <= cw::kPoiZoom) {
+        return g_cells.hidden(cell, x, y);
+    }
+
+    if (cw::cell_revealed(cell) || g_areas.count() == 0) return cell;
     return g_cells.view(cell, x, y, now, g_areas, lookup_in_game, self);
+}
+
+// The landmark pass's two text draws come here with the place being labelled.
+const cw::GameWString* mark_label(const std::uint8_t* record, const cw::GameWString* text, float* color,
+                                  bool foreground) {
+    if (!record || !g_label_map) return text;
+    bool revealed = false;
+    const cw::Cell origin = place_origin(record);
+    if (origin.valid()) {
+        const cw::MapCell* cell = g_get_cell.original<cw::GetCellFn>()(g_label_map, origin.x, origin.y);
+        revealed = cell && cw::cell_revealed(cell);
+    }
+    const PlaceMark mark = place_mark(record, revealed);
+    if (foreground) apply_mark_color(mark, color);
+    return g_marked.apply(text, mark);
 }
 
 // The label passes are the draw method's only two calls to getCell. Anything
@@ -165,26 +200,54 @@ bool initialize() {
         return false;
     }
 
-    if (!g_get_cell.install(get_cell, &get_cell_detour)) {
+    g_options = read_options();
+    const std::size_t draw_size = static_cast<std::size_t>(draw_end - draw);
+
+    // Loaded through the import table, this runs before the game has started
+    // any thread. Injected by a loader, the game may already be running, so
+    // every other thread is held while code is rewritten. Nothing in between
+    // may take a lock another thread could hold: no logging, no allocation.
+    const bool injected = GetCurrentThreadId() != main_thread_id();
+    bool hooked = false;
+    bool working = false;
+    bool labels = false;
+    bool marks = false;
+    {
+        // A stopped thread is always at an instruction boundary. The label
+        // edits replace whole instructions or only their operands, so only the
+        // five stolen bytes, three instructions long, need guarding.
+        const std::vector<ThreadFreeze::Range> guarded = {{get_cell, 5}};
+        std::unique_ptr<ThreadFreeze> freeze(injected ? new ThreadFreeze(guarded) : nullptr);
+        if (!freeze || freeze->ok()) {
+            hooked = g_get_cell.install(get_cell, &get_cell_detour);
+            working = hooked && trampoline_works();
+            if (hooked && !working) g_get_cell.remove();
+            if (working) {
+                labels = cw::patch_label_passes(draw, draw_size, g_options.labels);
+                marks = g_options.marks && cw::hook_label_text(draw, draw_size, &mark_label);
+            }
+        }
+    }
+    if (!hooked) {
         log_line("could not hook WorldMap::getCell - no hook installed");
         return false;
     }
-    if (!trampoline_works()) {
-        g_get_cell.remove();
+    if (!working) {
         log_line("the getCell trampoline did not behave - hook removed");
         return false;
     }
 
     // Optional, and independent of the reveal: if the bytes are not exactly the
     // expected ones, labels simply keep the game's own zoom and range limits.
-    const cw::LabelPassOptions options = read_label_options();
-    if (cw::patch_label_passes(draw, static_cast<std::size_t>(draw_end - draw), options)) {
-        g_cells.set_radius(options.radius);
+    if (labels) {
+        g_cells.set_radius(g_options.labels.radius);
         log_linef("labels: points of interest %s, %d cells around the map's centre",
-                  options.anyZoom ? "at every zoom" : "when zoomed in", options.radius);
+                  g_options.labels.anyZoom ? "at every zoom" : "when zoomed in", g_options.labels.radius);
     } else {
         log_line("labels: the map's label passes did not match - keeping the game's zoom and range limits");
     }
+    log_linef("marks: %s", marks ? "visited and boss-defeated marks on landmark names"
+                                 : (g_options.marks ? "the landmark name draws did not match - no marks" : "off"));
 
     // The game now calls into this DLL, so it must never be unloaded.
     HMODULE self = nullptr;
@@ -193,7 +256,8 @@ bool initialize() {
 
     LARGE_INTEGER finished{};
     QueryPerformanceCounter(&finished);
-    log_linef("supported build detected; RegionReveal active (set up in %.0f ms)",
+    log_linef("supported build detected; RegionReveal active (%s, set up in %.0f ms)",
+              injected ? "loaded by a mod loader" : "loaded as dinput8.dll",
               static_cast<double>(finished.QuadPart - started.QuadPart) * 1000.0 /
                   static_cast<double>(frequency.QuadPart));
     return true;

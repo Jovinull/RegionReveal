@@ -70,6 +70,9 @@ public:
     cw::MapCell* view(cw::MapCell* cell, int x, int y, std::uint32_t now, const RevealedAreas& areas,
                       AreaLookupFn lookup, void* context);
 
+    // A copy of `cell` with the reveal bit cleared, so the label pass skips it.
+    cw::MapCell* hidden(const cw::MapCell* cell, int x, int y);
+
     // Forgets every answer: they belong to the previous world.
     void clear();
 
