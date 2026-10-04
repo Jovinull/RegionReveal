@@ -12,7 +12,13 @@ castles, palaces, catacombs, ruins, mountains, canyons, valleys, lakes, islands.
 
 Only the labels. The ground stays exactly as you explored it, and the game's
 save is never touched. The whole area's labels show at once, at any zoom, even
-standing on its border.
+standing on its border — and each name tells you how far you got there:
+
+| Name on the map | Meaning |
+|---|---|
+| `RUINS OF DURAGOR` | revealed by the mod: you have not been there yet |
+| `RUINS OF DURAGOR •` | you have been there |
+| `IKOROK VALLEY †`, in green | its boss is defeated |
 
 | Same world, same spot, without the mod | With the mod |
 |---|---|
@@ -22,7 +28,8 @@ standing on its border.
 
 **Install:** download `dinput8.dll` from the
 [latest release](https://github.com/Jovinull/RegionReveal/releases/latest), put
-it next to `Cube.exe`, play. Delete it to uninstall.
+it next to `Cube.exe`, play. Delete it to uninstall. Already using ReShade or
+ENB? Use the Mod Launcher version instead — see [Installing](#installing).
 
 > **Checked in the running game.** A diagnostic build compared every label the
 > map drew against the game's own data — in new worlds on both Alpha builds,
@@ -58,13 +65,32 @@ gets its own history.
 - **It does not write to the save.** The reveal bit is set on a copy of the cell
   handed to the label pass, never on the cell itself.
 
+## Visited places and defeated bosses
+
+Every landmark name — castles, palaces, catacombs, ruins, mountains, lakes —
+gets a mark from the game's own data:
+
+- **` •` after the name:** you have been there. The game reveals the map as you
+  walk, so a place whose own cell the game has revealed is a place you reached.
+  In vanilla every name on the map is such a place; with the mod most are not,
+  and the dot tells them apart.
+- **Green with ` †`:** the boss of that place is defeated. Each place can carry a
+  boss mission ("Defeat the ruler in Ikorok Valley"); once its state is
+  *done* — the same state the game uses to keep that boss dead — the name turns
+  green.
+
+The marks are drawn into the map's own text with glyphs its font already has,
+change nothing in the save, and can be turned off with `marks=0`.
+
 ## Labels at any zoom, across the whole area
 
 The game itself limits its map labels in two ways, and by default the mod lifts
 both:
 
-- it draws points of interest — city districts, dungeon entrances — only when
-  the map is zoomed in; with the mod they show at every zoom;
+- it draws points of interest — dungeon entrances and other places with a
+  level — only when the map is zoomed in; with the mod they show at every zoom.
+  City districts still wait for a closer zoom, as in the game: zoomed out they
+  only pile up on top of the city's name;
 - it draws labels only within 32 cells of the map's centre, less than an area is
   wide; with the mod the range is 96, so even standing on one border of an area
   you see the labels up to the opposite one.
@@ -83,8 +109,10 @@ when the game starts:
 
 ```ini
 [labels]
-any_zoom=1   ; 0: points of interest only when zoomed in, as in the game
-range=96     ; cells each way from the map's centre: 32 (the game's) to 127
+any_zoom=1        ; 0: points of interest only when zoomed in, as in the game
+range=96          ; cells each way from the map's centre: 32 (the game's) to 127
+marks=1           ; 0: no visited / boss-defeated marks
+far_districts=0   ; 1: city districts at every zoom too
 ```
 
 ## Supported builds
@@ -116,6 +144,17 @@ game's entry point and forwards that call to the real `dinput8.dll` in
 `System32`. **One file is added; nothing is renamed, replaced or written to.**
 Delete it and the install is stock again.
 
+### Alongside ReShade, ENB or another dinput8.dll
+
+Only one file can be called `dinput8.dll`. If another mod already uses that
+name, use **`RegionReveal.dll`** from the release with the
+[Cube World Mod Launcher v1.5](https://github.com/coremaze/Cube-World-Mod-Launcher/releases/tag/v1.5)
+instead: put `RegionReveal.dll` in a `Mods` folder beside `Cube.exe` and start
+the game through the launcher. It is the same mod; it holds the game's other
+threads for the instant it rewrites code, since a launcher loads it while the
+game is already starting. The launcher only accepts the 2013-07-20 build
+(0.1.1).
+
 Expect the antivirus to object. The mod patches five bytes of `Cube.exe` in
 memory, which is genuinely the same technique a malicious hook uses; see
 [`docs/TOOLING.md`](docs/TOOLING.md) for what the DLL does and does not link
@@ -135,12 +174,17 @@ cmake -B build -A Win32
 cmake --build build --config Release
 build/Release/region_test.exe
 python tests/run_tests.py build/Release/signature_test.exe "<game folder>/Cube.exe"
+build/Release/host_test.exe
 ```
+
+Produces `dinput8.dll` and `RegionReveal.dll` (the Mod Launcher build) plus
+three test programs.
 
 ## How it works
 
 One 5-byte detour, on `cube::WorldMap::getCell(x, y)`, installed from `DllMain`
-before the game has started any thread.
+— before the game has started any thread when loaded as `dinput8.dll`, with
+every other thread held when a mod launcher injects it.
 
 - **Tracking.** Four times a second, on the game's main thread, the mod reads
   the local player's cell and asks `cube::World`'s own area lookup which area it
@@ -152,6 +196,10 @@ before the game has started any thread.
 - **Widening the label passes.** Unless turned off, the zoom check that skips
   the point-of-interest pass is replaced with a no-op and the 32-cell radius of
   both passes becomes 96 — twelve bytes, identical in both builds.
+- **Marks.** The landmark pass draws each name through one text-drawing call,
+  twice (outline, then text). Both calls are redirected to the mod, which looks
+  at the place being labelled and appends ` •` or ` †` and turns the text green
+  where it applies, then hands over to the game's own function.
 - **Never guessing.** The game's lookup picks the nearest of the area centres it
   has generated so far, so far from where the player has been it can name the
   wrong area. The mod only trusts an answer once every centre the lookup
@@ -170,12 +218,10 @@ Details and evidence: [`docs/BEHAVIOUR.md`](docs/BEHAVIOUR.md),
 - **A landmark on an area's border can show from either side.** The game keeps
   one landmark per 8 × 8 block of cells, and the label of a block cut by the
   border can show as soon as any of its cells is in an area you entered.
-- **Busy labels when zoomed far out.** With every label of an area on screen,
-  names close together — a city's districts — can overlap.
-- **Bosses are the game's own business.** The Alpha's boss hunts are missions,
-  drawn on the map as crossed swords by the game itself, with or without the
-  mod — the screenshots above show the same icon in both. The mod reveals the
-  places, not the missions.
+- **Boss marks follow the place's mission.** A boss without a mission on a
+  landmark — a random strong monster — has nothing to mark.
+- **The visited dot looks at the place's own cell.** Walking past a large place
+  without crossing its centre may not count as visiting it.
 - **No per-category toggles**, deliberately: the reveal unit is the area.
 
 ## Licence

@@ -248,6 +248,9 @@ rely on it: it reads the local player's position itself.
 - The full point-of-interest and place taxonomy. `+0x10` type 1 is a city and
   four place categories are pinned; the others are not, so per-category
   configuration is not implemented rather than faked.
+- The record's mission: `+0x34` non-zero means it has one, the byte at `+0x41`
+  is its state, 2 meaning done (`0x60CA22` keeps that boss dead). Recorded in
+  `docs/MAP_LABELS.md`.
 - What `0x5FA4C0` computes for a place record and a cell position. The record
   matches cuwo's `MissionData`, origin and size included, so it is very likely
   a containment test, but that was not read out of the code

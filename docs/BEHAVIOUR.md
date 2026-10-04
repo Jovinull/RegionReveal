@@ -179,12 +179,31 @@ Every choice fails towards revealing less:
 A damaged file can lose history. It cannot invent it, and it cannot reveal an
 area the player has not been to.
 
+## Marks on landmark names
+
+A landmark name ends in ` •` once the player has been there — the game itself
+has revealed the cell at the place's origin — and is drawn green with ` †` once
+the place's boss mission is done. `docs/MAP_LABELS.md` has the mechanism. The
+check costs one `getCell` through the trampoline per name drawn, a few dozen a
+frame.
+
 ## Start-up and lifetime
 
 `Cube.exe` imports `dinput8.dll`, so the mod's `DllMain` runs on the game's main
 thread while the imports load, before the entry point. Everything is set up
 there — about 10 ms of pattern scanning — so the five patched bytes are written
-before any game thread exists to execute them. Once the hook is in, the DLL pins
+before any game thread exists to execute them.
+
+`RegionReveal.dll`, the build for mod loaders, cannot count on that. The Cube
+World Mod Launcher v1.5 starts the game suspended, injects each DLL of its
+`Mods` folder with `CreateRemoteThread`, and resumes the game without waiting
+for them, so the game may already be running. The mod therefore works out which
+thread is the main one — the oldest of the process — and, when it is not
+running on it, suspends every other thread while it writes code. A suspended
+thread always sits on an instruction boundary; only the five stolen bytes of
+`getCell` span several instructions, so a thread stopped inside them is let go
+and the attempt repeated. Nothing in between allocates memory or logs, since a
+suspended thread may hold the heap lock. Once the hook is in, the DLL pins
 itself so it can never be unloaded while the game calls into it. The real
 `dinput8.dll` is loaded on the first `DirectInput8Create` call rather than from
 `DllMain`.

@@ -79,6 +79,54 @@ swords whether or not the place is revealed: the same icon sits in the same
 spot in the A/B screenshots with and without the mod. The mod neither shows nor
 hides them.
 
+### How a landmark name is drawn — CONFIRMED
+
+After picking the record, the pass builds the name into a `std::wstring`
+(`0x4E5590`) and chooses its colour from the place's level against the
+player's (`0x43CA60` on both): white for a place below your level, cyan around
+it, red above it, white always for a city. Then it draws the text twice through
+the same text-drawing function — `call 0x639B30` at `0x4CAEB2` for the
+outline and at `0x4CAF9D` for the text, offsets `+0x1832` and `+0x191D` of the
+draw method — with the font name, the text, six floats, the colour and three
+more arguments. All along the record stays in the stack slot `[ebp-0x354]`.
+
+### The place record is also the boss mission — CONFIRMED
+
+The record's layout matches cuwo's `MissionData`: origin at `+0x00`/`+0x08`,
+category at `+0x18`, area level at `+0x24`, and a mission from `+0x2C`. A record
+has a mission when the dword at `+0x34` is non-zero, and its state byte at
+`+0x41` is 0 before the fight, 1 during it and 2 once it is done. The game keys
+the boss's fate on it: at `0x60CA22`, state 2 sets the boss creature's health
+to zero, so a defeated boss stays dead.
+
+## How RegionReveal marks names
+
+Both text draws of the landmark pass are redirected to a small stub that reads
+the record from `[ebp-0x354]` — the draw method's frame is still live — and asks
+the mod what to draw:
+
+- the place's mission is done (state 2): the name is drawn green with ` †`;
+- otherwise, if the game itself has revealed the cell at the place's origin —
+  the player has been there — the name gets ` •`;
+- otherwise it is drawn as the game chose.
+
+The stub hands a different string to the game's function, never edits the
+game's own, and the colour is changed only in the draw method's local copy,
+which it rebuilds for every name. `•` and `†` are both glyphs of the map font
+(`resource1.dat`, a TrueType font with 230 glyphs; it has no check mark or
+star). The two call sites and the stack slot are checked in both builds before
+anything is redirected.
+
+## City districts and the zoom
+
+With the zoom check gone, the point-of-interest pass draws a city's districts
+at every zoom, and zoomed out they pile up on top of the city's name. So while
+the zoom value is at or below the game's own threshold of 2.0, the mod hides
+cells whose point of interest is a district (type 1) from that pass by handing
+it a copy without the reveal bit — the same trick as the reveal, the other way
+round. Dungeon entrances and other points of interest still show. `far_districts=1`
+turns this off.
+
 ## Points of interest arrive after the world loads
 
 A diagnostic survey of the area the player spawned in found no cell with a

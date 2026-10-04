@@ -24,6 +24,13 @@ python tests/run_tests.py build/Release/signature_test.exe "<2013-07-20>/Cube.ex
   `run_tests.py` identifies each executable by SHA-256 first. `Server.exe` is
   refused: the `getCell` and map-overlay signatures do not match in it.
 
+- `host_test` — **test H, run for real.** Loads `dinput8.dll` into a process
+  that is not `Cube.exe`: the log must say `unsupported Cube World Alpha build -
+  no hook installed` and never `active`, and `DirectInput8Create` must still
+  create DirectInput through the system's `dinput8.dll`. Also checks that
+  `ThreadFreeze` stops and resumes other threads and that the main thread is
+  found as the oldest one.
+
 ## In the game
 
 Back up `Save/` first, then copy `dinput8.dll` beside `Cube.exe`.
@@ -127,8 +134,7 @@ The release `dinput8.dll`, world `mark test`, the test character at level 500.
 | **I** — 30 minutes | 71 cycles of moving 1–15 cells in a random direction, walking, opening the map, zooming in and out and closing it. Private memory between 1113 and 1308 MB with no upward trend, no crash, a new area recorded on the way |
 | Multiplayer | The 2013-07-20 `Server.exe` on this machine, the client connected to `localhost`. The game names the online world `online_26879`, so it gets its own `.visited` file; "Lands of Terodara" was recorded on arrival and its labels — Ruins of Lugolon, Sanria Palace, Krogor Castle, Rock of Angar and more — shown on the map. In the Alpha the client generates the world itself, so nothing else differs |
 
-**Still to do:** H against a live unsupported build — covered offline: no
-signature matches `Server.exe` or any other executable checked.
+Test H now runs live through `host_test`, above.
 
 ## Earlier runs
 
