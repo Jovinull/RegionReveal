@@ -33,7 +33,7 @@ Back up `Save/` first, then copy `dinput8.dll` beside `Cube.exe`.
 | Line | Meaning |
 |---|---|
 | `supported build detected; RegionReveal active (set up in N ms)` | the hook is in; anything else at start-up means the game runs unmodified |
-| `labels: points of interest at every zoom, 64 cells around the map's centre` | the label options as applied; the defaults, or what `RegionReveal.ini` asked for |
+| `labels: points of interest at every zoom, 96 cells around the map's centre` | the label options as applied; the defaults, or what `RegionReveal.ini` asked for |
 | `visited: N areas recorded in world 'name'` | a world was opened and its file read |
 | `entered new area (X,Y) at cell (x,y) in world 'name'` | an area was entered for the first time and written to the file |
 | `back in area (X,Y) ...` | the player moved into an area already recorded |
@@ -42,8 +42,8 @@ The area is named by the storage chunk of its centre, so two lines with the
 same `(X,Y)` are the same area.
 
 With the default options, points of interest (city districts, dungeon entrances)
-show at every zoom and labels reach 64 cells from the map's centre. Set
-`any_zoom=0` and `wide=0` in `RegionReveal.ini` to compare with the game's own
+show at every zoom and labels reach 96 cells from the map's centre. Set
+`any_zoom=0` and `range=32` in `RegionReveal.ini` to compare with the game's own
 limits.
 
 | | Scenario | Expected |
@@ -87,21 +87,36 @@ checkable rather than a matter of counting text on a screenshot.
 | Undecided cells within 160 of the player | 21 121 at load, 641 twenty seconds later; none inside the player's area either time |
 | Exit through the menu | clean, no error |
 
-### The label options, same session and world
+### The label options at 64 cells, same session and world
 
 | Check | Result |
 |---|---|
-| Start-up | `labels: points of interest at every zoom, 64 cells around the map's centre` |
+| Start-up | `labels: points of interest at every zoom, 64 cells around the map's centre` (the range at the time) |
 | Window | x 32736–32863, y 32736–32863: 16 384 cells, all loaded |
 | Default zoom, point-of-interest pass | runs; city districts drawn. 100 points of interest in the window: the area's 25 shown, the other 75 belong to other areas and stay hidden; 0 hidden inside the area |
 | Landmark pass | 138 blocks with a landmark: 35 shown by the mod, 1 already explored, 102 of other areas hidden, 0 hidden inside the area, 0 leaked. One more than before: a block on the area's east border, now inside the window |
 | Zoomed out | more of the area's landmarks on screen (Narrior Tree, Catacombs of Asgor, Likusel Palace); a city's districts overlap |
-| Frame time, map open | see `docs/BEHAVIOUR.md`: about 94 fps with any zoom alone, about 60 with the wider range too |
 | `RegionReveal.ini` with both options off | the window back to 64 × 64 and the point-of-interest pass skipped at the default zoom |
 
-**Not yet run on this version:** B on screen (the counters showed nothing
-outside the area within the window, but the map was not panned across a
-border), C, G, the 2013-07-02 build, and I.
+## Run on 2026-10-04, range 96
+
+Same world and test build with counters. The player was moved with a test
+harness that writes the local player's position, so a border could be reached
+in seconds.
+
+| Check | Result |
+|---|---|
+| Frame rate with the map open, by range | 80, 66, 60 and 49 fps at 32, 64, 96 and 127 cells, measured by a build that only counted frames |
+| **B** — standing 2 cells inside the area's west border, map open | window x 32683–32874: the whole area is in it, up to its east border at 32845. The area's 25 points of interest shown; 149 of other areas hidden. 255 landmark blocks: 34 shown by the mod, 2 explored by the game, 219 of other areas hidden. **0 hidden inside the area, 0 leaked.** The dotted border visible on screen |
+| **C** — crossing the border with the map closed | `entered new area (511,512) at cell (32767,32800)` logged on arrival: "Aruka Ocean". On opening the map, its labels (Krotar Island, Narka Island, Asden Palace, Varden Castle, Kurron Mountains…) appear and the first area's stay. Counters: 44 points of interest and 67 landmarks shown, 0 hidden, 0 leaked |
+| **G** — restart with the DLL | `visited: 2 areas recorded in world 'mark test'`, `back in area (511,512)`; the same 44 and 67 labels |
+| **G** — same world without the DLL | not one label on the map at the default zoom, where the mod showed 44 points of interest and 67 landmarks; the ground identical. Nothing the mod showed was saved |
+| 2013-07-02, world `oldbuild` | label options applied (`96 cells`), `visited: 1 areas`, `back in area (512,512)`; Ikokor City with its districts at the default zoom; 25 points of interest and 38 landmarks shown, 0 hidden, 0 leaked |
+| Crashes | none in either log |
+
+**Still to do:** D, E and F (dungeons, bosses and cities left untouched by
+gameplay — the mod changes nothing outside the two label passes), H against a
+live unsupported build, and I, the 30-minute session.
 
 ## Earlier runs
 

@@ -97,13 +97,12 @@ bit written into a cell would reach the save (`docs/REVERSE_ENGINEERING.md`,
 "Persistence").
 
 The passes ask for every cell within 32 of the map's centre, twice a frame.
-Each answer is cached per cell in a 128 × 128 table indexed by the cell's
-coordinates: the cell's area once decided, and whether it is revealed. The
+Each answer is cached per cell in a table indexed by the cell's coordinates: the cell's area once decided, and whether it is revealed. The
 game's lookup therefore runs once per cell rather than half a million times a
 second, and entering a new area updates every cached answer at once without
 asking the game again. The copy handed to the label pass is taken afresh on
-every call, so it is never stale, and no two cells of the 64 × 64 window share a
-slot, so a copy stays valid for the whole frame.
+every call, so it is never stale, and no two cells of the window share a slot,
+so a copy stays valid for the whole frame.
 
 ## Lifting the game's label limits
 
@@ -116,30 +115,35 @@ entering an area shows all of it:
 - the conditional jump that skips the point-of-interest pass becomes a six-byte
   no-op;
 - the radius of both passes, written as an 8-bit `± 0x20` in eleven places,
-  becomes `± 0x40`, a 128 × 128 window.
+  becomes 96 by default, a 192 × 192 window, so the whole area is in it even
+  when the map's centre is on one of its borders. Being an 8-bit value, it can
+  go up to 127.
 
 The draw method is the same 6650 bytes in both builds, differing only in
 absolute addresses, so the twelve edits sit at the same offsets in each. Every
 byte to be replaced is compared with what it must be before anything is written,
 and if any differs nothing is: labels just keep the game's limits, and the
 reveal works as before. `tests/signature_test.cpp` checks the same bytes in both
-`Cube.exe` files on disk. Either change can be turned off in `RegionReveal.ini`
-(`[labels] any_zoom=0`, `wide=0`); the file is read once, while the DLL loads,
-because the bytes are only ever written before the game has started.
+`Cube.exe` files on disk. `RegionReveal.ini` sets both (`[labels] any_zoom=0`
+keeps the zoom check, `range=32` to `127` sets the radius); the file is read
+once, while the DLL loads, because the bytes are only ever written before the
+game has started.
 
-The per-cell answer table is 128 × 128, exactly the wider window, so the cells a
-pass asks for in one frame still never share a slot.
+The per-cell answer table grows with the radius — its side is the smallest
+power of two at least as wide as the window, 256 for the default — so the cells
+a pass asks for in one frame still never share a slot.
 
-Cost, measured on 2026-10-03 with the map open — the label passes run only then:
+Cost, measured on 2026-10-04 with the map open, the label passes running only
+then, by a build that counted frames and nothing else:
 
-| Labels | Label passes per frame | Of which the mod | Map screen |
-|---|---|---|---|
-| the game's limits | about 3.5 ms | 0.35 ms | about 88 fps |
-| any zoom | about 3.6 ms | 0.5 ms | about 94 fps |
-| any zoom, 64 cells | about 8.5 ms | 1.9 ms | about 60 fps |
+| Label range (cells each way) | 32, the game's | 64 | **96, the default** | 127, the most |
+|---|---|---|---|---|
+| Map screen | about 80 fps | about 66 fps | about 60 fps | about 49 fps |
 
-Most of the wider range's cost is the game's own work over four times as many
-cells. Gameplay with the map closed is unaffected.
+The zoom change on its own costs nothing measurable. Most of the range's cost
+is the game's own work: both passes visit every cell of the window, 36 864 of
+them at 96 against 4 096 at the game's 32. Gameplay with the map closed is
+unaffected.
 
 ## Persistence
 

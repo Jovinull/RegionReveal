@@ -51,19 +51,25 @@ both:
 - it draws points of interest — city districts, dungeon entrances — only when
   the map is zoomed in; with the mod they show at every zoom;
 - it draws labels only within 32 cells of the map's centre, less than an area is
-  wide; with the mod the range is 64, so the whole area around you fits.
+  wide; with the mod the range is 96, so even standing on one border of an area
+  you see the labels up to the opposite one.
 
 Both are a few bytes in the game's map-drawing code, checked byte for byte
 before anything is written, and they only change which labels the game draws.
-They cost frame time while the map is open, and only then: on the test machine
-the map screen went from about 94 to about 60 frames per second with the wider
-range, while the zoom change cost nothing measurable. Either can be turned off
-in an optional `RegionReveal.ini` beside `Cube.exe`, read when the game starts:
+The range costs frame time while the map is open, and only then; the zoom change
+costs nothing measurable. On the test machine, with any zoom on:
+
+| Label range (cells each way) | 32, the game's | 64 | **96, the default** | 127, the most |
+|---|---|---|---|---|
+| Map screen | about 80 fps | about 66 fps | about 60 fps | about 49 fps |
+
+Both can be changed in an optional `RegionReveal.ini` beside `Cube.exe`, read
+when the game starts:
 
 ```ini
 [labels]
 any_zoom=1   ; 0: points of interest only when zoomed in, as in the game
-wide=1       ; 0: labels within 32 cells of the map's centre, as in the game
+range=96     ; cells each way from the map's centre: 32 (the game's) to 127
 ```
 
 ## Supported builds
@@ -130,7 +136,7 @@ before the game has started any thread.
   each cell is cached, so the game's lookup runs once per cell, not per frame.
 - **Widening the label passes.** Unless turned off, the zoom check that skips
   the point-of-interest pass is replaced with a no-op and the 32-cell radius of
-  both passes becomes 64 — twelve bytes, identical in both builds.
+  both passes becomes 96 — twelve bytes, identical in both builds.
 - **Never guessing.** The game's lookup picks the nearest of the area centres it
   has generated so far, so far from where the player has been it can name the
   wrong area. The mod only trusts an answer once every centre the lookup

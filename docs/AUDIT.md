@@ -53,15 +53,16 @@ running game where that is possible. `docs/TESTING.md` has the runs.
 | Unsupported build fails closed | PASS | `Server.exe` matches neither `getCell` nor the overlay signature; `find_unique` rejects a second match; the mod also refuses unless exactly two label calls are found |
 | Signatures unique in both builds | PASS | `tests/run_tests.py`; the area-lookup signature also pins the area-centre table's offset |
 | Every label of an entered area shown | PASS | 2026-10-03: 32 of 33 landmarks in view by the mod (1 already explored) and 25 of 25 points of interest, none hidden |
-| Nothing shown outside entered areas | PASS within the window, pending across a border on screen | 0 leaked labels in the counters; test B not yet run on this version |
+| Nothing shown outside entered areas | PASS | 0 leaked labels in every counted frame, including standing on an area's border with 149 points of interest and 219 landmarks of other areas in the window |
 | Terrain untouched | PASS | Only the two label calls get a different answer; the ground matched vanilla on screen |
-| No save mutation | PASS for the previous version, by design for this one | A/B on 2026-10-02: 26 labels with the DLL, 2 without; the mod still never writes a cell. Test G to be rerun |
-| Area recorded on entry, map closed or open | PASS for the previous version, by design for this one | Tracking runs from gameplay's `getCell` calls on the game thread; test C to be rerun |
-| Persistent, per-world history | PASS offline, pending in game | Format v3, atomic replace, fail-closed parse, v2 converted; covered by `region_test` |
+| No save mutation | PASS | A/B on 2026-10-04: 44 points of interest and 67 landmarks with the DLL, none without, same world and spot |
+| Area recorded on entry, map closed or open | PASS | 2026-10-04: crossing into "Aruka Ocean" with the map closed was logged on arrival |
+| Persistent, per-world history | PASS | Covered by `region_test`; in game, a restart restored both areas and their labels |
+| 2013-07-02 build | PASS | Same counters on `oldbuild`: 25 points of interest and 38 landmarks, 0 hidden, 0 leaked |
 | No wrong area from an incomplete lookup | PASS | Undecided cells are never revealed: 21 121 undecided at load, 641 twenty seconds later, none in the player's area |
 | World names with spaces | PASS | `mark test` recorded; the previous version refused such names silently |
-| Labels at any zoom, whole area at once | PASS | With the default options the point-of-interest pass runs at the default zoom and the window is 128 × 128; counters: the area's 25 points of interest and 35 landmarks shown, nothing of other areas |
+| Labels at any zoom, whole area at once | PASS | With the default options the point-of-interest pass runs at the default zoom and the window is 192 × 192; from the area's west border its east border is still in the window |
 | Label options fail safe | PASS | The twelve bytes are compared before writing and checked on disk in both builds; a mismatch leaves the game's limits and the reveal in place |
-| Performance | PASS, with a cost while the map is open | One lookup per cell, cached. Map screen about 94 fps with the game's range, about 60 with the wider range (`docs/BEHAVIOUR.md`); nothing while the map is closed |
+| Performance | PASS, with a cost while the map is open | One lookup per cell, cached. Map screen about 80 fps at the game's range, about 60 at the default 96, about 49 at 127 (`docs/BEHAVIOUR.md`); nothing while the map is closed |
 | Clean reproducible build | PASS | `cmake -B build -A Win32`, `/W4 /WX`, 68 unit checks |
 | Extended stability | PARTIAL | Short sessions only; test I still to do |

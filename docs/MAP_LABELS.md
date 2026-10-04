@@ -41,10 +41,11 @@ method, the same in both builds:
 | Points of interest | `+0x135`, `+0x138`, `+0x151`, `+0x157`, `+0xD92`, `+0xDAA` |
 | Landmarks | `+0xDFF`, `+0xE02`, `+0xE24`, `+0xE30`, `+0x1967` |
 
-The mod's `wide` option, on by default, makes each `± 0x40`. The map data
-worker keeps storage chunks loaded three chunks — 192 cells — around the map's
-centre, so every cell of the wider window is there to ask about; a diagnostic
-build saw all 16 384 loaded.
+The mod's `range` option sets each to the chosen radius, 96 by default and
+at most 127, the largest an 8-bit displacement holds. The map data worker keeps
+storage chunks loaded three chunks — 192 cells — around the map's centre, so
+every cell of the wider window is there to ask about; a diagnostic build saw
+all 36 864 of the default window loaded.
 
 ### Landmark records — CONFIRMED
 
