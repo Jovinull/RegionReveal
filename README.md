@@ -1,21 +1,35 @@
 # Region Reveal
 
+[![Release](https://img.shields.io/github/v/release/Jovinull/RegionReveal?label=download)](https://github.com/Jovinull/RegionReveal/releases/latest)
+![Cube World Alpha](https://img.shields.io/badge/Cube%20World-Alpha%200.1.1%20%7C%202013--07--02-3b82f6)
+![Platform](https://img.shields.io/badge/platform-Windows%20x86-555)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
+
 When you walk into a named area in Cube World Alpha — "Lands of Durala",
-"Damarok Ocean", the regions the world map outlines with dotted lines — every
+"Aruka Ocean", the regions the world map outlines with dotted lines — every
 label in that area appears on the world map: cities and their districts,
-castles, palaces, catacombs, ruins, mountains, canyons, valleys, lakes.
+castles, palaces, catacombs, ruins, mountains, canyons, valleys, lakes, islands.
 
 Only the labels. The ground stays exactly as you explored it, and the game's
-save is never touched. By default the whole area's labels show at once, at any
-zoom, rather than only those near the map's centre and, for city districts and
-dungeon entrances, only when zoomed in.
+save is never touched. The whole area's labels show at once, at any zoom, even
+standing on its border.
 
-> **Checked in the running game on 2026-10-03.** In a new world, entering
-> "Lands of Durala" put every label of its 3 610 cells on the map at once. A
-> diagnostic build compared each one against the game's own data: of the 33
-> landmark labels in view, 32 were shown by the mod and 1 was already explored,
-> and all 25 points of interest in the area were shown, with none hidden inside
-> the area and none leaking outside it. See [`docs/TESTING.md`](docs/TESTING.md).
+| Same world, same spot, without the mod | With the mod |
+|---|---|
+| ![Map without RegionReveal: no labels](docs/images/without-mod.jpg) | ![Map with RegionReveal: every label of the area](docs/images/with-mod.jpg) |
+
+![A whole area's labels at once, city districts included](docs/images/whole-area.jpg)
+
+**Install:** download `dinput8.dll` from the
+[latest release](https://github.com/Jovinull/RegionReveal/releases/latest), put
+it next to `Cube.exe`, play. Delete it to uninstall.
+
+> **Checked in the running game.** A diagnostic build compared every label the
+> map drew against the game's own data — in new worlds on both Alpha builds,
+> standing on an area's border, after crossing into the next area with the map
+> closed, and after a restart: every label of the areas entered shown, none of
+> any other area. With the DLL removed the same spot shows no label at all, so
+> nothing reaches the save. See [`docs/TESTING.md`](docs/TESTING.md).
 
 ## What it does
 
@@ -157,9 +171,11 @@ Details and evidence: [`docs/BEHAVIOUR.md`](docs/BEHAVIOUR.md),
   border can show as soon as any of its cells is in an area you entered.
 - **Busy labels when zoomed far out.** With every label of an area on screen,
   names close together — a city's districts — can overlap.
-- **Boss is not covered separately.** No per-category toggles, deliberately:
-  the reveal unit is the area, and the game's own categories are only partly
-  identified.
+- **Bosses are the game's own business.** The Alpha's boss hunts are missions,
+  drawn on the map as crossed swords by the game itself, with or without the
+  mod — the screenshots above show the same icon in both. The mod reveals the
+  places, not the missions.
+- **No per-category toggles**, deliberately: the reveal unit is the area.
 
 ## Licence
 

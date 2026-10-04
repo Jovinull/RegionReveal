@@ -62,9 +62,22 @@ it calls `0x6023B0` with the coordinates divided by 8, which returns one of the
 So a landmark appears as soon as one revealed cell of its block passes that
 test, which is why a landmark on an area's border can show from either side.
 
-Four values were pinned by counting a screenshot against the save: 1 = City,
+The record is the game's place-and-mission record. Its layout matches the
+`MissionData` structure the cuwo server project recovered for the same game:
+the place's origin (two 64-bit positions at `+0x00`), its size (`+0x10`), the
+place category at `+0x18` — what the landmark pass draws — then the place
+item, the name generator, the area level, and a mission: monster race and level,
+state and progress. That makes `0x5FA4C0` very likely the test of the cell's
+position against the place's origin and size.
+
+Four categories were pinned by counting a screenshot against the save: 1 = City,
 2 = Mountain, 3 = Forest, 4 = Lake. The rest of the game's name table did not
-match what the map drew, and **boss** has not been separated from anything.
+match what the map drew.
+
+**Bosses** are the missions in those records. The map draws them as crossed
+swords whether or not the place is revealed: the same icon sits in the same
+spot in the A/B screenshots with and without the mod. The mod neither shows nor
+hides them.
 
 ## Points of interest arrive after the world loads
 

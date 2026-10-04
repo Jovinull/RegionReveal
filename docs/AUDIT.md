@@ -40,9 +40,10 @@ running game where that is possible. `docs/TESTING.md` has the runs.
 
 - **The `reg` record format.** All blobs are exactly 60164 bytes, but which byte
   holds the reveal flag was never found; a falsification test failed.
-- **Who writes `ZoneTile+0x10`**, and what `0x5FA4C0` computes for the landmark
-  pass.
-- **Dungeon and boss categories.** Only city (`+0x10` type 1) and four landmark
+- **Who writes `ZoneTile+0x10`**, and what exactly `0x5FA4C0` computes for the
+  landmark pass — very likely a test of the cell against the place's origin and
+  size, given the record matches cuwo's `MissionData`.
+- **Dungeon categories.** Only city (`+0x10` type 1) and four landmark
   values (city, mountain, forest, lake) are pinned.
 
 ## Acceptance matrix

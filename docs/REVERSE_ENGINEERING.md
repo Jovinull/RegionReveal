@@ -245,11 +245,13 @@ rely on it: it reads the local player's position itself.
   generate, but the write was never traced.
 - `WorldMap+0x90..0x9C` is a **closed** lead: written only by the constructor,
   to `-1`, and by nothing else in the translation unit.
-- The full point-of-interest and landmark taxonomy. `+0x10` type 1 is a city
-  and four landmark values are pinned; dungeon and boss are not separated, so
-  per-category configuration is not implemented rather than faked.
-- What `0x5FA4C0` computes for a landmark record and a cell position; the
-  landmark pass draws only when it is positive.
+- The full point-of-interest and place taxonomy. `+0x10` type 1 is a city and
+  four place categories are pinned; the others are not, so per-category
+  configuration is not implemented rather than faked.
+- What `0x5FA4C0` computes for a place record and a cell position. The record
+  matches cuwo's `MissionData`, origin and size included, so it is very likely
+  a containment test, but that was not read out of the code
+  (`docs/MAP_LABELS.md`).
 
 Most of the rest has since been exercised in the running game; see
 `docs/TESTING.md`.
