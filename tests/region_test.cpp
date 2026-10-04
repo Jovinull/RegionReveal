@@ -366,15 +366,16 @@ void label_passes() {
     check(again == copy && again[0x10] == 0x42, "asking again refreshes the same copy, so it never goes stale");
 
     world.elsewhere = 9;
+    cells.set_radius(cw::kMaxLabelRadius);
     std::set<const void*> slots;
-    const int side = 2 * cw::kWideLabelRadius;
+    const int side = 2 * cw::kMaxLabelRadius;
     for (int x = 0; x < side; ++x) {
         for (int y = 0; y < side; ++y) {
             slots.insert(cells.view(cell, 32736 + x, 32736 + y, now, areas, &FakeWorld::lookup, &world));
         }
     }
     check(slots.size() == static_cast<std::size_t>(side * side),
-          "every cell of the widest label window gets its own copy");
+          "every cell of the widest label window, 254 x 254, gets its own copy");
 }
 
 }  // namespace

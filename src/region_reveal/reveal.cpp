@@ -179,9 +179,9 @@ bool initialize() {
     // expected ones, labels simply keep the game's own zoom and range limits.
     const cw::LabelPassOptions options = read_label_options();
     if (cw::patch_label_passes(draw, static_cast<std::size_t>(draw_end - draw), options)) {
+        g_cells.set_radius(options.radius);
         log_linef("labels: points of interest %s, %d cells around the map's centre",
-                  options.anyZoom ? "at every zoom" : "when zoomed in",
-                  options.wideRange ? cw::kWideLabelRadius : cw::kLabelRadius);
+                  options.anyZoom ? "at every zoom" : "when zoomed in", options.radius);
     } else {
         log_line("labels: the map's label passes did not match - keeping the game's zoom and range limits");
     }

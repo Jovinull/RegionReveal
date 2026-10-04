@@ -44,20 +44,21 @@ private:
 
 // What the map overlay's label passes are told about each cell.
 //
-// The passes ask for every cell within 32 - or 64 with the wider range - of the
-// map's centre, twice a frame, so each answer is kept per cell: the cell's area once it is known, and
+// The passes ask for every cell within their radius of the map's centre, twice
+// a frame - up to 64 516 cells - so each answer is kept per cell: the cell's area once it is known, and
 // whether that area is revealed. A cell whose area cannot be decided yet is
 // asked again a second later, when the world generator may have caught up.
 //
-// Slots are indexed by the cell's coordinates modulo 128. Any window narrower
-// than that maps its cells to distinct slots, so a copy handed out for a cell
-// stays that cell's copy for the whole frame. Everything here belongs to the
-// game thread.
+// Slots are indexed by the cell's coordinates modulo a power of two at least as
+// wide as the label window, so the cells a pass asks for in one frame map to
+// distinct slots and a copy handed out for a cell stays that cell's copy for
+// the whole frame. Everything here belongs to the game thread.
 class LabelCells {
 public:
-    static constexpr int kSide = 128;
     static constexpr std::uint32_t kRetryMs = 1000;
-    static_assert(kSide >= 2 * cw::kWideLabelRadius, "a label window must map to distinct slots");
+
+    // The label passes' radius; sizes the table. Call before the first frame.
+    void set_radius(int radius);
 
     // Whether (x, y) lies in a revealed area. `now` is GetTickCount().
     bool revealed(int x, int y, std::uint32_t now, const RevealedAreas& areas, AreaLookupFn lookup,
@@ -91,7 +92,8 @@ private:
     bool decide(Slot& s, std::uint32_t now, const RevealedAreas& areas, AreaLookupFn lookup, void* context);
 
     std::uint32_t epoch_ = 1;
-    std::vector<Slot> slots_;  // allocated on first use: about 1.3 MB
+    int side_ = 64;            // a power of two, at least twice the radius
+    std::vector<Slot> slots_;  // side_ * side_, allocated on first use: 80 bytes a slot
 };
 
 }  // namespace rr

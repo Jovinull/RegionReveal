@@ -38,9 +38,19 @@ bool RevealedAreas::contains(cw::AreaId area) const {
     return std::binary_search(areas_.begin(), areas_.end(), area);
 }
 
+void LabelCells::set_radius(int radius) {
+    int side = 64;
+    while (side < 2 * radius) side *= 2;
+    if (side == side_) return;
+    side_ = side;
+    slots_.clear();
+    slots_.shrink_to_fit();
+}
+
 LabelCells::Slot& LabelCells::slot(int x, int y) {
-    if (slots_.empty()) slots_.resize(kSide * kSide);
-    Slot& s = slots_[(x & (kSide - 1)) * kSide + (y & (kSide - 1))];
+    if (slots_.empty()) slots_.resize(static_cast<std::size_t>(side_) * side_);
+    const int mask = side_ - 1;
+    Slot& s = slots_[static_cast<std::size_t>(x & mask) * side_ + (y & mask)];
     if (s.epoch != epoch_ || s.x != x || s.y != y) {
         s.epoch = epoch_;
         s.x = x;

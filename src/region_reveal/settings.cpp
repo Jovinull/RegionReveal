@@ -13,7 +13,8 @@ cw::LabelPassOptions read_label_options() {
     const std::wstring path = beside_game(L"RegionReveal.ini");
     if (path.empty()) return options;
     options.anyZoom = GetPrivateProfileIntW(L"labels", L"any_zoom", 1, path.c_str()) != 0;
-    options.wideRange = GetPrivateProfileIntW(L"labels", L"wide", 1, path.c_str()) != 0;
+    options.radius = cw::clamp_label_radius(static_cast<int>(
+        GetPrivateProfileIntW(L"labels", L"range", cw::kDefaultLabelRadius, path.c_str())));
     return options;
 }
 
