@@ -115,7 +115,8 @@ int main(int argc, char** argv) {
         std::printf("  %s label passes (zoom gate and 11 range bytes)\n", ok ? "ok  " : "FAIL");
         if (!ok) ++failures;
         const bool text = end && cw::label_text_matches(draw, static_cast<std::size_t>(end - draw));
-        std::printf("  %s landmark name draws (two calls and the record slot)\n", text ? "ok  " : "FAIL");
+        std::printf("  %s landmark name draws (two calls, the record slot and the place test)\n",
+                    text ? "ok  " : "FAIL");
         if (!text) ++failures;
     }
 

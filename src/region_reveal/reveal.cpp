@@ -46,8 +46,15 @@ LabelCells g_cells;
 MarkedText g_marked;
 Options g_options;
 
-// The map the label passes last drew, for the landmark name marks.
+// The map the label passes last drew, for the landmark name marks, and the
+// game's own test of a place against a cell.
 cw::WorldMap* g_label_map = nullptr;
+cw::PlaceTestFn g_place_test = nullptr;
+
+// The place whose name is being drawn and its mark, worked out once for both
+// of its draws.
+const std::uint8_t* g_marked_record = nullptr;
+PlaceMark g_mark = PlaceMark::None;
 
 std::string g_world;  // the name last read from the game, usable or not
 bool g_in_area = false;
@@ -131,19 +138,29 @@ cw::MapCell* __fastcall get_cell_detour(cw::WorldMap* self, void*, int x, int y)
     return g_cells.view(cell, x, y, now, g_areas, lookup_in_game, self);
 }
 
-// The landmark pass's two text draws come here with the place being labelled.
+// Read through the trampoline: whether the game itself has revealed the cell.
+bool revealed_in_game(void* map, const std::uint8_t*, int x, int y) {
+    const cw::MapCell* cell = g_get_cell.original<cw::GetCellFn>()(static_cast<cw::WorldMap*>(map), x, y);
+    return cell && cw::cell_revealed(cell);
+}
+
+bool inside_place(void*, const std::uint8_t* record, int x, int y) {
+    const std::int64_t centreX = cell_centre(x);
+    const std::int64_t centreY = cell_centre(y);
+    return g_place_test(record, &centreX, &centreY) > 0.0f;
+}
+
+// The landmark pass's two text draws come here with the place being labelled:
+// the outline first, then the text, for the same place.
 const cw::GameWString* mark_label(const std::uint8_t* record, const cw::GameWString* text, float* color,
                                   bool foreground) {
     if (!record || !g_label_map) return text;
-    bool revealed = false;
-    const cw::Cell origin = place_origin(record);
-    if (origin.valid()) {
-        const cw::MapCell* cell = g_get_cell.original<cw::GetCellFn>()(g_label_map, origin.x, origin.y);
-        revealed = cell && cw::cell_revealed(cell);
+    if (!foreground || record != g_marked_record) {
+        g_marked_record = record;
+        g_mark = place_mark(record, place_seen(record, revealed_in_game, inside_place, g_label_map));
     }
-    const PlaceMark mark = place_mark(record, revealed);
-    if (foreground) apply_mark_color(mark, color);
-    return g_marked.apply(text, mark);
+    if (foreground) apply_mark_color(g_mark, color);
+    return g_marked.apply(text, g_mark);
 }
 
 // The label passes are the draw method's only two calls to getCell. Anything
@@ -202,6 +219,7 @@ bool initialize() {
 
     g_options = read_options();
     const std::size_t draw_size = static_cast<std::size_t>(draw_end - draw);
+    g_place_test = cw::place_test_of(draw, draw_size);
 
     // Loaded through the import table, this runs before the game has started
     // any thread. Injected by a loader, the game may already be running, so

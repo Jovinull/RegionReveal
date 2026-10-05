@@ -52,6 +52,7 @@ inline constexpr int kPlaceOriginY = 0x08;
 inline constexpr int kPlaceMission = 0x34;   // non-zero when the place has a mission
 inline constexpr int kPlaceMissionState = 0x41;
 inline constexpr std::uint8_t kMissionDone = 2;  // the game kills the boss for good at 2
+inline constexpr int kPlaceBlockCells = 8;          // the block of cells a record belongs to
 
 // The WorldMap is constructed in place inside the game controller, which also
 // holds the local player.

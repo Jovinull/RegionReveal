@@ -392,7 +392,7 @@ void place_marks() {
     check(origin.x == 32820 && origin.y == 32821, "a place's origin is the cell holding its position");
 
     check(rr::place_mark(record, false) == rr::PlaceMark::None, "a place never visited has no mark");
-    check(rr::place_mark(record, true) == rr::PlaceMark::Visited, "a place the game revealed is marked visited");
+    check(rr::place_mark(record, true) == rr::PlaceMark::Visited, "a place the game itself shows is marked visited");
 
     const std::uint32_t mission = 26572;
     std::memcpy(record + cw::kPlaceMission, &mission, sizeof(mission));
@@ -405,11 +405,63 @@ void place_marks() {
     std::memcpy(record + cw::kPlaceMission, &none, sizeof(none));
     check(rr::place_mark(record, false) == rr::PlaceMark::None, "the state alone, without a mission, means nothing");
 
+    check(rr::cell_centre(32820) == (32820LL * 256 + 128) * 65536, "the place test gets a cell's centre");
+
     float white[4] = {1, 1, 1, 1};
     rr::apply_mark_color(rr::PlaceMark::Visited, white);
     check(white[0] == 1 && white[1] == 1 && white[2] == 1, "a visited place keeps the game's colour");
     rr::apply_mark_color(rr::PlaceMark::BossDefeated, white);
     check(white[0] < 1 && white[1] == 1 && white[2] < 1 && white[3] == 1, "a defeated boss turns its name green");
+}
+
+// The cells a fake game has revealed and those inside the place.
+struct FakePlace {
+    std::set<std::pair<int, int>> revealed;
+    std::set<std::pair<int, int>> inside;
+    int asked = 0;
+};
+
+bool fake_revealed(void* context, const std::uint8_t*, int x, int y) {
+    auto* place = static_cast<FakePlace*>(context);
+    ++place->asked;
+    return place->revealed.count({x, y}) != 0;
+}
+
+bool fake_inside(void* context, const std::uint8_t*, int x, int y) {
+    return static_cast<FakePlace*>(context)->inside.count({x, y}) != 0;
+}
+
+void place_seen() {
+    std::printf("place seen\n");
+    std::uint8_t record[0x68] = {};
+    const std::int64_t x = (32820LL * 256 + 40) * 65536;  // block 32816..32823
+    const std::int64_t y = (32821LL * 256 + 200) * 65536;
+    std::memcpy(record + cw::kPlaceOriginX, &x, sizeof(x));
+    std::memcpy(record + cw::kPlaceOriginY, &y, sizeof(y));
+
+    FakePlace place;
+    check(!rr::place_seen(record, fake_revealed, fake_inside, &place), "nothing revealed: not seen");
+    check(place.asked == 64, "every cell of the place's 8 x 8 block is asked about");
+
+    place.revealed.insert({32817, 32822});
+    check(!rr::place_seen(record, fake_revealed, fake_inside, &place),
+          "a revealed cell of the block outside the place does not count");
+    place.inside.insert({32817, 32822});
+    check(rr::place_seen(record, fake_revealed, fake_inside, &place),
+          "a revealed cell inside the place, not its centre, counts");
+
+    FakePlace beside;
+    beside.revealed.insert({32824, 32821});
+    beside.inside.insert({32824, 32821});
+    check(!rr::place_seen(record, fake_revealed, fake_inside, &beside),
+          "a cell of the next block does not count, as in the game");
+
+    std::uint8_t nowhere[0x68] = {};
+    const std::int64_t outside = 70000LL * 256 * 65536;  // past the 65536-cell edge
+    std::memcpy(nowhere + cw::kPlaceOriginX, &outside, sizeof(outside));
+    FakePlace none;
+    check(!rr::place_seen(nowhere, fake_revealed, fake_inside, &none) && none.asked == 0,
+          "a place outside the map is never seen and nothing is asked");
 }
 
 void marked_text() {
@@ -474,6 +526,7 @@ int main() {
     revealed_areas();
     label_passes();
     place_marks();
+    place_seen();
     marked_text();
     hidden_cells();
 

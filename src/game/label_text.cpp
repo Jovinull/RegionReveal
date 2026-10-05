@@ -17,6 +17,18 @@ constexpr std::uint16_t kTextCall = 0x191D;
 constexpr std::uint16_t kRecordLoad = 0x15A2;
 constexpr std::uint8_t kRecordLoadBytes[] = {0x8B, 0x85, 0xAC, 0xFC, 0xFF, 0xFF};  // mov eax, [ebp-0x354]
 
+// The landmark pass's place test: a `call rel32` with the record in ecx and
+// pointers to the cell centre's x and y pushed, and the start of the function
+// it calls.
+constexpr std::uint16_t kPlaceTestCall = 0xF6F;
+constexpr std::uint8_t kPlaceTestSetup[] = {
+    0x8D, 0x85, 0x4C, 0xFC, 0xFF, 0xFF, 0x50,  // lea eax, [ebp-0x3B4]; push eax  (y)
+    0x8D, 0x85, 0x64, 0xFC, 0xFF, 0xFF, 0x50,  // lea eax, [ebp-0x39C]; push eax  (x)
+    0x8B, 0xCE,                                // mov ecx, esi                    (the record)
+    0x89, 0x95, 0x68, 0xFC, 0xFF, 0xFF,        // mov [ebp-0x398], edx
+};
+constexpr std::uint8_t kPlaceTestStart[] = {0x55, 0x8B, 0xEC, 0xFF, 0x75, 0x0C, 0xFF, 0x75, 0x08, 0xE8};
+
 LabelTextFn g_fn = nullptr;
 void* g_draw_text = nullptr;  // the game's text-drawing function
 
@@ -73,11 +85,21 @@ void write_call(std::uint8_t* call, const void* to) {
 
 }  // namespace
 
+PlaceTestFn place_test_of(const std::uint8_t* draw, std::size_t drawSize) {
+    if (drawSize != kDrawSize || draw[kPlaceTestCall] != 0xE8) return nullptr;
+    const std::uint8_t* setup = draw + kPlaceTestCall - sizeof(kPlaceTestSetup);
+    if (std::memcmp(setup, kPlaceTestSetup, sizeof(kPlaceTestSetup)) != 0) return nullptr;
+    const std::uint8_t* test = call_target(draw + kPlaceTestCall);
+    if (std::memcmp(test, kPlaceTestStart, sizeof(kPlaceTestStart)) != 0) return nullptr;
+    return reinterpret_cast<PlaceTestFn>(const_cast<std::uint8_t*>(test));
+}
+
 bool label_text_matches(const std::uint8_t* draw, std::size_t drawSize) {
     if (drawSize != kDrawSize) return false;
     if (draw[kOutlineCall] != 0xE8 || draw[kTextCall] != 0xE8) return false;
     if (call_target(draw + kOutlineCall) != call_target(draw + kTextCall)) return false;
-    return std::memcmp(draw + kRecordLoad, kRecordLoadBytes, sizeof(kRecordLoadBytes)) == 0;
+    if (std::memcmp(draw + kRecordLoad, kRecordLoadBytes, sizeof(kRecordLoadBytes)) != 0) return false;
+    return place_test_of(draw, drawSize) != nullptr;
 }
 
 bool hook_label_text(std::uint8_t* draw, std::size_t drawSize, LabelTextFn fn) {

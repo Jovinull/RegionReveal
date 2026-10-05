@@ -29,8 +29,17 @@ static_assert(sizeof(GameWString) == 0x18, "MSVC 2012 wstring layout");
 using LabelTextFn = const GameWString* (*)(const std::uint8_t* record, const GameWString* text, float* color,
                                            bool foreground);
 
-// Whether the draw method holds the two calls and the stack slot the
-// redirection relies on. Both supported builds do.
+// The landmark pass's test of a place against a revealed cell: given the
+// position of the cell's centre, positive when the cell lies inside the place.
+// The game draws a landmark's name only once a cell of its block passes it.
+using PlaceTestFn = float(__thiscall*)(const std::uint8_t* record, const std::int64_t* x, const std::int64_t* y);
+
+// The function the landmark pass calls for that test, or null if its call
+// site is not the expected one.
+PlaceTestFn place_test_of(const std::uint8_t* draw, std::size_t drawSize);
+
+// Whether the draw method holds the two calls, the stack slot and the place
+// test the marks rely on. Both supported builds do.
 bool label_text_matches(const std::uint8_t* draw, std::size_t drawSize);
 
 // Redirects the two calls. Must run while no other thread can be inside the

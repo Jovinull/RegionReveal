@@ -25,11 +25,28 @@ cw::Cell place_origin(const std::uint8_t* record) {
     return cell.valid() ? cell : cw::Cell{};
 }
 
-PlaceMark place_mark(const std::uint8_t* record, bool originRevealed) {
+std::int64_t cell_centre(int cell) {
+    return (static_cast<std::int64_t>(cell) * cw::kBlocksPerCell + cw::kBlocksPerCell / 2) * cw::kPosUnitsPerBlock;
+}
+
+bool place_seen(const std::uint8_t* record, PlaceCellFn revealed, PlaceCellFn inside, void* context) {
+    const cw::Cell origin = place_origin(record);
+    if (!origin.valid()) return false;
+    const int left = origin.x - origin.x % cw::kPlaceBlockCells;
+    const int bottom = origin.y - origin.y % cw::kPlaceBlockCells;
+    for (int x = left; x < left + cw::kPlaceBlockCells; ++x) {
+        for (int y = bottom; y < bottom + cw::kPlaceBlockCells; ++y) {
+            if (revealed(context, record, x, y) && inside(context, record, x, y)) return true;
+        }
+    }
+    return false;
+}
+
+PlaceMark place_mark(const std::uint8_t* record, bool seen) {
     std::uint32_t mission = 0;
     std::memcpy(&mission, record + cw::kPlaceMission, sizeof(mission));
     if (mission != 0 && record[cw::kPlaceMissionState] == cw::kMissionDone) return PlaceMark::BossDefeated;
-    return originRevealed ? PlaceMark::Visited : PlaceMark::None;
+    return seen ? PlaceMark::Visited : PlaceMark::None;
 }
 
 void apply_mark_color(PlaceMark mark, float* rgba) {
