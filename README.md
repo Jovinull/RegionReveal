@@ -70,10 +70,11 @@ gets its own history.
 Every landmark name — castles, palaces, catacombs, ruins, mountains, lakes —
 gets a mark from the game's own data:
 
-- **` •` after the name:** you have been there. The game reveals the map as you
-  walk, so a place whose own cell the game has revealed is a place you reached.
-  In vanilla every name on the map is such a place; with the mod most are not,
-  and the dot tells them apart.
+- **` •` after the name:** you have been there — the game itself would show
+  this name. Without the mod a name appears once you have walked close enough
+  for the game to count the place as discovered; with the mod every name of the
+  area shows, and the dot marks the ones the game already knows, by the game's
+  own test.
 - **Green with ` †`:** the boss of that place is defeated. Each place can carry a
   boss mission ("Defeat the ruler in Ikorok Valley"); once its state is
   *done* — the same state the game uses to keep that boss dead — the name turns
@@ -199,7 +200,9 @@ every other thread held when a mod launcher injects it.
 - **Marks.** The landmark pass draws each name through one text-drawing call,
   twice (outline, then text). Both calls are redirected to the mod, which looks
   at the place being labelled and appends ` •` or ` †` and turns the text green
-  where it applies, then hands over to the game's own function.
+  where it applies, then hands over to the game's own function. Whether you have
+  been there is the landmark pass's own question — does a cell the game has
+  revealed lie inside the place — asked through the game's own function.
 - **Never guessing.** The game's lookup picks the nearest of the area centres it
   has generated so far, so far from where the player has been it can name the
   wrong area. The mod only trusts an answer once every centre the lookup
@@ -220,8 +223,6 @@ Details and evidence: [`docs/BEHAVIOUR.md`](docs/BEHAVIOUR.md),
   border can show as soon as any of its cells is in an area you entered.
 - **Boss marks follow the place's mission.** A boss without a mission on a
   landmark — a random strong monster — has nothing to mark.
-- **The visited dot looks at the place's own cell.** Walking past a large place
-  without crossing its centre may not count as visiting it.
 - **No per-category toggles**, deliberately: the reveal unit is the area.
 
 ## Licence

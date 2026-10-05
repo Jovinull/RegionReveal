@@ -9,7 +9,7 @@ build/Release/region_test.exe
 python tests/run_tests.py build/Release/signature_test.exe "<2013-07-20>/Cube.exe" "<2013-07-02>/Cube.exe"
 ```
 
-- `region_test` — 68 checks over the logic that needs neither the game nor a
+- `region_test` — 92 checks over the logic that needs neither the game nor a
   `Cube.exe`: which chunks the area lookup compares for a cell, including the
   world's edges; the visited file (round trip, exact bytes on disk, version 2
   conversion, world isolation, accepted and refused world names, every kind of
@@ -136,6 +136,21 @@ The release `dinput8.dll`, world `mark test`, the test character at level 500.
 
 Test H now runs live through `host_test`, above.
 
+## Run on 2026-10-05, marks, districts and the Mod Launcher
+
+The release `dinput8.dll` and `RegionReveal.dll`, world `mark test` (seed 777)
+with the level-1000 mage, then `oldbuild` on 2013-07-02.
+
+| Check | Result |
+|---|---|
+| Boss defeated | "Defeat the ruler in Ikorok Valley": the place's record had its mission in state 1. Its ruler, Thaldar (Insektoid, level 60, 80 306 HP), was fought down — its health lowered to 300 through memory to save time, the last hits real. The game gave the mission's reward (30 platinum coins, a +75 bracelet, 530 XP), the record's state went to 2 and the map showed `IKOROK VALLEY †` in green. After a restart of the game it was still green |
+| First visited rule | The dot looked only at the cell holding the place's origin. Standing in Durala City, beside its centre cell, the city had no dot: the game reveals only the cells the player crosses, and its own names do not wait for the centre |
+| Visited rule, as shipped | Every cell of the place's block, through the game's own place test. In the same spot: `DURALA CITY •`, `IKORIA MOUNTAINS •`, `RUINS OF VARSEL •`, `KURSEL MOUNTAINS •`, `CATACOMBS OF ASGOR •` and `IKOROK VALLEY †`, every other name unmarked |
+| A/B for the dot | The same world and spot without the DLL: the game drew exactly those six names and no other |
+| Districts | At the default zoom no district over the city's name; zoomed in, Pet District, Crafting District and Trade District, with the inns |
+| Mod Launcher v1.5 | `CubeModLauncher.exe` and `CallbackManager.dll` beside `Cube.exe`, `Mods\RegionReveal.dll`, no `dinput8.dll`: `RegionReveal active (loaded by a mod loader, set up in 132 ms)`, and the map identical to the `dinput8.dll` build's, marks included |
+| 2013-07-02 | `RegionReveal active`; the area's names shown, `IKOKOR CITY •` after walking up to the city, its four districts only zoomed in |
+
 ## Earlier runs
 
 - **2026-10-02, 8 × 8-block version, 2013-07-20.** Region tracking with the map
@@ -155,7 +170,5 @@ need x32dbg rather than the mod:
 
 - a write watchpoint on a cell's `+0x10`, to find who fills in points of
   interest;
-- a breakpoint on `0x5FA4C0`, to see what decides whether a landmark draws for
-  a given cell;
 - the `Database` set calls in `0x605420`, to locate the reveal bit inside a
   saved `reg` record.

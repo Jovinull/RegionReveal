@@ -251,9 +251,9 @@ rely on it: it reads the local player's position itself.
 - The record's mission: `+0x34` non-zero means it has one, the byte at `+0x41`
   is its state, 2 meaning done (`0x60CA22` keeps that boss dead). Recorded in
   `docs/MAP_LABELS.md`.
-- What `0x5FA4C0` computes for a place record and a cell position. The record
-  matches cuwo's `MissionData`, origin and size included, so it is very likely
-  a containment test, but that was not read out of the code
+- What `0x5FA4C0` computes for a place record and a cell position: `(1 − d)²`
+  for the cell centre's relative distance `d < 1` from the place, else 0 — a
+  containment test, read out of the code and used by the marks
   (`docs/MAP_LABELS.md`).
 
 Most of the rest has since been exercised in the running game; see

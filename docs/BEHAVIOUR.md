@@ -182,10 +182,17 @@ area the player has not been to.
 ## Marks on landmark names
 
 A landmark name ends in ` •` once the player has been there — the game itself
-has revealed the cell at the place's origin — and is drawn green with ` †` once
-the place's boss mission is done. `docs/MAP_LABELS.md` has the mechanism. The
-check costs one `getCell` through the trampoline per name drawn, a few dozen a
-frame.
+would show it: a cell of the place's 8 × 8 block that the game has revealed lies
+inside the place, by the landmark pass's own test — and is drawn green with
+` †` once the place's boss mission is done. `docs/MAP_LABELS.md` has the
+mechanism. A name is checked once per frame, for both its draws: at most 64
+`getCell` calls through the trampoline, and the place test only for the
+revealed ones.
+
+The game reveals only the cells the player actually crosses, 256 blocks wide,
+so a place's centre cell is often never revealed even after a visit — standing
+in Durala City next to its centre left it unrevealed. Testing every cell of the
+block the way the game does is what makes the dot agree with the game.
 
 ## Start-up and lifetime
 

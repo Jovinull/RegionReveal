@@ -40,9 +40,8 @@ running game where that is possible. `docs/TESTING.md` has the runs.
 
 - **The `reg` record format.** All blobs are exactly 60164 bytes, but which byte
   holds the reveal flag was never found; a falsification test failed.
-- **Who writes `ZoneTile+0x10`**, and what exactly `0x5FA4C0` computes for the
-  landmark pass — very likely a test of the cell against the place's origin and
-  size, given the record matches cuwo's `MissionData`.
+- **Who writes `ZoneTile+0x10`.** (`0x5FA4C0`, once listed here, is now read:
+  a containment test of the cell against the place, `docs/MAP_LABELS.md`.)
 - **Dungeon categories.** Only city (`+0x10` type 1) and four landmark
   values (city, mountain, forest, lake) are pinned.
 
@@ -65,7 +64,11 @@ running game where that is possible. `docs/TESTING.md` has the runs.
 | Labels at any zoom, whole area at once | PASS | With the default options the point-of-interest pass runs at the default zoom and the window is 192 × 192; from the area's west border its east border is still in the window |
 | Label options fail safe | PASS | The twelve bytes are compared before writing and checked on disk in both builds; a mismatch leaves the game's limits and the reveal in place |
 | Performance | PASS, with a cost while the map is open | One lookup per cell, cached. Map screen about 80 fps at the game's range, about 60 at the default 96, about 49 at 127 (`docs/BEHAVIOUR.md`); nothing while the map is closed |
-| Clean reproducible build | PASS | `cmake -B build -A Win32`, `/W4 /WX`, 68 unit checks |
+| Clean reproducible build | PASS | `cmake -B build -A Win32`, `/W4 /WX`, 92 unit checks |
 | Extended stability | PASS | A 30-minute session of moving between areas and using the map: memory 1.1–1.3 GB with no upward trend, no crash |
 | Gameplay untouched | PASS | Place and mission records byte for byte identical before and after the reveal; boss missions stay open; a revealed dungeon and city behave as vanilla |
 | Multiplayer | PASS | Connected to a local `Server.exe`: the online world gets its own history and its area's labels are revealed |
+| Visited marks agree with the game | PASS | 2026-10-05: with the mod, six names in view carried a mark; without it, the game showed exactly those six and no other |
+| Boss-defeated mark | PASS | 2026-10-05: defeating the ruler of Ikorok Valley set its mission state to 2 and the name turned green with ` †`, still so after a restart |
+| Districts follow the zoom | PASS | Hidden at the default zoom, shown zoomed in (Pet, Crafting, Trade District), in both builds |
+| Mod Launcher v1.5 | PASS | `Mods\RegionReveal.dll` with no `dinput8.dll`: `loaded by a mod loader`, same map as the `dinput8.dll` build, alongside the launcher's `CallbackManager.dll` |

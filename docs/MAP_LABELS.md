@@ -57,7 +57,7 @@ it calls `0x6023B0` with the coordinates divided by 8, which returns one of the
 - `0` and `0xA` are skipped (`0x4CA54B`, `0x4CA553`);
 - each record is drawn once per frame — the pass keeps a `std::set` of records
   already drawn;
-- and only when `0x5FA4C0(record, position)` is positive for the revealed cell.
+- and only when `0x5FA4C0(record, &x, &y)` is positive for the revealed cell.
 
 So a landmark appears as soon as one revealed cell of its block passes that
 test, which is why a landmark on an area's border can show from either side.
@@ -67,8 +67,17 @@ The record is the game's place-and-mission record. Its layout matches the
 the place's origin (two 64-bit positions at `+0x00`), its size (`+0x10`), the
 place category at `+0x18` — what the landmark pass draws — then the place
 item, the name generator, the area level, and a mission: monster race and level,
-state and progress. That makes `0x5FA4C0` very likely the test of the cell's
-position against the place's origin and size.
+state and progress.
+
+### The place test — CONFIRMED
+
+`0x5FA4C0` (`0x5F8ED0` in 2013-07-02) is a `__thiscall` on the record with two
+pointers, to the x and the y of the revealed cell's centre in 64-bit fixed point
+(`(cell × 256 + 128) << 16`), set up and called at `0x4CA5D9`–`0x4CA5EF`, offset
+`+0xF6F` of the draw method in both builds. It asks `0x5F8E10` for the cell's
+distance from the place relative to the place's size — a shape that depends on
+the category — and returns `(1 − d)²` while `d < 1`, else 0. Positive means the
+cell lies inside the place.
 
 Four categories were pinned by counting a screenshot against the save: 1 = City,
 2 = Mountain, 3 = Forest, 4 = Lake. The rest of the game's name table did not
@@ -106,8 +115,10 @@ the record from `[ebp-0x354]` — the draw method's frame is still live — and 
 the mod what to draw:
 
 - the place's mission is done (state 2): the name is drawn green with ` †`;
-- otherwise, if the game itself has revealed the cell at the place's origin —
-  the player has been there — the name gets ` •`;
+- otherwise, if the game itself would draw the name — one of the 64 cells of
+  the place's block is revealed and passes the place test above — the name gets
+  ` •`. The mod asks that through the game's own function, found from its call
+  at `+0xF6F` and checked before anything is redirected;
 - otherwise it is drawn as the game chose.
 
 The stub hands a different string to the game's function, never edits the

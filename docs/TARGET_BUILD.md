@@ -101,8 +101,9 @@ them (stride `0x34` and the grid shift in `getCell`, the area-centre table at
 the evidence for that claim. The map overlay's draw method is the same 6650
 bytes in both, differing only in absolute addresses, so the twelve bytes the
 label options rewrite sit at the same offsets from its start in each, and so do
-the two landmark-name draws the marks redirect (`+0x1832`, `+0x191D`) and the
-load of the place record from `[ebp-0x354]` (`+0x15A2`); both `Cube.exe` files
+the two landmark-name draws the marks redirect (`+0x1832`, `+0x191D`), the
+load of the place record from `[ebp-0x354]` (`+0x15A2`) and the call of the
+place test (`+0xF6F`, to `0x5FA4C0` and `0x5F8ED0`); both `Cube.exe` files
 are checked for all of them by `tests/signature_test.cpp`. The offsets
 no signature covers — the local player
 at `controller+0x8006D0`, its position, the world name at `World+0x94` — were
