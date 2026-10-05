@@ -80,6 +80,11 @@ gets a mark from the game's own data:
   *done* — the same state the game uses to keep that boss dead — the name turns
   green.
 
+![Durala City, Kursel Mountains and others marked visited; Ikorok Valley green with a dagger](docs/images/marks.jpg)
+
+*Standing in Durala City: the places the game already knows carry a dot, the
+ruler of Ikorok Valley is defeated, and the rest of the area is shown unmarked.*
+
 The marks are drawn into the map's own text with glyphs its font already has,
 change nothing in the save, and can be turned off with `marks=0`.
 
